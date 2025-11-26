@@ -1,18 +1,19 @@
 module AllometricModels
 
-using GLM, Logging, MixedModels, Reexport, StatsModels, Tables
+using StatsModels, Tables, LinearAlgebra, Combinatorics, Base.Threads
 
-@reexport using GLM
-@reexport using MixedModels
-@reexport using StatsModels
-
-const nullschema = StatsModels.Schema()
-const β0 = InterceptTerm{true}()
 const S = Union{Symbol,String}
-const TermTuple = Tuple{Vararg{AbstractTerm}}
+const TermTuple = Tuple{Vararg{Tuple{AbstractTerm,Vector{Float64}}}}
+const β0 = InterceptTerm{true}()
+
+abstract type AllometricModel <: RegressionModel end
+
+function combinationsfit(model, args...)
+  error("Backend for $model not loaded or implemented.")
+end
 
 include("regression.jl")
 
-export regression
+export regression, AllometricModel
 
 end
