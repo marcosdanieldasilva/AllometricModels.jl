@@ -1,19 +1,27 @@
 module AllometricModels
 
-using StatsModels, Tables, LinearAlgebra, Combinatorics, Base.Threads
-
-const S = Union{Symbol,String}
-const TermTuple = Tuple{Vararg{Tuple{AbstractTerm,Vector{Float64}}}}
-const β0 = InterceptTerm{true}()
-
-abstract type AllometricModel <: RegressionModel end
+using StatsAPI, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
+# Distributions, HypothesisTests not used by now
 
 function combinationsfit(model, args...)
   error("Backend for $model not loaded or implemented.")
 end
 
+include("structs.jl")
+include("parameters.jl")
 include("regression.jl")
+include("io.jl")
 
-export regression, AllometricModel
+export regression,
+  AllometricModel,
+  predict,
+  residuals,
+  deviance,
+  nulldeviance,
+  nobs,
+  dof_residual,
+  r2,
+  adjr2,
+  formula
 
 end

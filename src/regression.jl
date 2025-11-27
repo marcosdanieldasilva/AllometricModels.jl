@@ -34,13 +34,13 @@ function transformYTerm(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   return ylist
 end
 
-function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
+function combinationsfit(::Type{AllometricModel}, y::Vector{<:Float64}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
   # pre-calculate intercept column (X0)
   X0 = modelcols(β0, cols)
 
   nx = length(combinations)
   ny = length(ylist)
-  fittedmodels = Matrix{Any}(undef, ny, nx)
+  fittedmodels = Matrix{Union{Missing,AllometricModel}}(undef, ny, nx)
 
   # Regression Loop (Split Path for Optimization)
   if isempty(qterms)
@@ -51,29 +51,47 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
       # construct X: Intercept + Continuous Columns
       X = hcat(X0, map(last, c)...)
 
-      try
-        XtX = X' * X
-        chol = cholesky!(Symmetric(XtX))
+      # try
+      XtX = X' * X
+      chol = cholesky!(Symmetric(XtX))
 
-        for iy in 1:ny
-          (yt, y) = ylist[iy]
-          Xty = X' * y
-          β = ldiv!(chol, Xty)
+      for iy in 1:ny
+        (yt, Y) = ylist[iy]
+        Xty = X' * Y
+        β = ldiv!(chol, Xty)
 
-          ŷ = similar(y)
-          mul!(ŷ, X, β)
+        ŷ = similar(Y)
+        mul!(ŷ, X, β)
+        # compute residuals and sum of squared residuals
+        ε = Y - ŷ
+        SSR = ε ⋅ ε
 
-          # formula: y ~ β0 + continuous_terms
-          rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
-          ft = FormulaTerm(yt, rhs)
+        # nobs ands degrees of freedom
+        n, p = size(X)
+        ν = n - p
 
-          fittedmodels[iy, ix] = (ft, β, ŷ)
+        # residual variance
+        σ² = SSR / ν
+
+        # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
+        if isa(yt, FunctionTerm)
+          # Apply the function-specific prediction logic
+          ŷ .= predictBiasCorrected(cols, yt, ŷ, σ²)
+          ε .= y - ŷ
         end
-      catch
-        for iy in 1:ny
-          fittedmodels[iy, ix] = missing
-        end
+
+        # formula: y ~ β0 + continuous_terms
+        rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
+        ft = FormulaTerm(yt, rhs)
+
+        fittedmodels[iy, ix] = AllometricModel(ft, cols, β, ŷ, ε, σ², n, ν)
+
       end
+      # catch
+      #   for iy in 1:ny
+      #     fittedmodels[iy, ix] = missing
+      #   end
+      # end
     end
 
   else
@@ -93,18 +111,36 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
         chol = cholesky!(Symmetric(XtX))
 
         for iy in 1:ny
-          (yt, y) = ylist[iy]
-          Xty = X' * y
+          (yt, Y) = ylist[iy]
+          Xty = X' * Y
           β = ldiv!(chol, Xty)
 
-          ŷ = similar(y)
-          mul!(ŷ, X, β)
+          ŷ = similar(Y)
+          mul!(ŷ, X, β)
+
+          # compute residuals and sum of squared residuals
+          ε = Y - ŷ
+          SSR = ε ⋅ ε
+
+          # nobs ands degrees of freedom
+          n, p = size(X)
+          ν = n - p
+
+          # residual variance
+          σ² = SSR / ν
+
+          # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
+          if isa(yt, FunctionTerm)
+            # Apply the function-specific prediction logic
+            ŷ .= predictBiasCorrected(cols, yt, ŷ, σ²)
+            ε .= y - ŷ
+          end
 
           # formula: y ~ β0 + continuous_terms + q_terms
           rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
           ft = FormulaTerm(yt, rhs)
 
-          fittedmodels[iy, ix] = (ft, β, ŷ)
+          fittedmodels[iy, ix] = AllometricModel(ft, cols, β, ŷ, ε, σ², n, ν)
         end
       catch
         for iy in 1:ny
@@ -114,7 +150,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
     end
   end
 
-  # flatten and remove missing fits
+  # # flatten and remove missing fits
   fittedmodels = collect(skipmissing(vec(fittedmodels)))
   isempty(fittedmodels) && error("failed to fit all Linear Regression Models")
 
@@ -185,7 +221,7 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     TermTuple[Tuple(g) for g in Iterators.product(termgroups...)] |> vec
   end
 
-  # Build Y List
+  # Build y List
   ylist = Vector{Tuple{AbstractTerm,Vector{Float64}}}()
 
   for t in transformYTerm(yterm, xterms)
@@ -197,5 +233,5 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     end
   end
 
-  combinationsfit(model, cols, ylist, combinations, qterms)
+  combinationsfit(model, collect(cols[yterm.sym]), cols, ylist, combinations, qterms)
 end
