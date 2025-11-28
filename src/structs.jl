@@ -112,4 +112,3 @@ function LinearModel(
     significance
   )
 end
-

@@ -11,8 +11,8 @@ transformXTerm(xterm::AbstractTerm) = AbstractTerm[
 ]
 
 inversesqrt(y::Real) = 1 / √y
-xoversqrty(x::Real, y::Real) = x / √y
-xsquaredovery(x::Real, y::Real) = x^2 / y
+xoversqrty(y::Real, x::Real) = x / √y
+xsquaredovery(y::Real, x::Real) = x^2 / y
 
 function transformYTerm(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   ylist = AbstractTerm[
@@ -24,135 +24,85 @@ function transformYTerm(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   # add combined transformations with each x
   for xt in xterms
     push!(ylist,
-      FunctionTerm(xoversqrty, [xt, yterm], :($xt / √($yterm)))
+      FunctionTerm(xoversqrty, [yterm, xt], :($xt / √($yterm)))
     )
     push!(ylist,
-      FunctionTerm(xsquaredovery, [xt, yterm], :(($xt)^2 / $yterm))
+      FunctionTerm(xsquaredovery, [yterm, xt], :(($xt)^2 / $yterm))
     )
   end
 
   return ylist
 end
 
-function combinationsfit(::Type{AllometricModel}, y::Vector{<:Float64}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
-  # pre-calculate intercept column (X0)
+function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
+  # pre-calculate intercept column
   X0 = modelcols(β0, cols)
+
+  # pre-calculate categorical column(s)
+  if !isempty(qterms)
+    Qsum = sum(qterms)
+    Qmatrix = modelmatrix(Qsum, cols)
+  end
 
   nx = length(combinations)
   ny = length(ylist)
+  # pre-allocate output matrix
   fittedmodels = Matrix{Union{Missing,AllometricModel}}(undef, ny, nx)
 
-  # Regression Loop (Split Path for Optimization)
-  if isempty(qterms)
-    # PATH A: Continuous Variables Only
-    Threads.@threads for ix in 1:nx
-      c = combinations[ix]
+  Threads.@threads for ix in 1:nx
+    c = combinations[ix]
 
-      # construct X: Intercept + Continuous Columns
+    if isempty(qterms)
       X = hcat(X0, map(last, c)...)
+      rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
+    else
+      X = hcat(X0, map(last, c)..., Qmatrix)
+      rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
+    end
 
-      # try
-      XtX = X' * X
-      chol = cholesky!(Symmetric(XtX))
+    try
+      chol = cholesky!(X'X)
 
       for iy in 1:ny
         (yt, Y) = ylist[iy]
-        Xty = X' * Y
-        β = ldiv!(chol, Xty)
-
+        # β = (X'X)⁻¹ * (X'Y)
+        β = X'Y
+        # Solve for regression coefficients β in-place using the Cholesky factor
+        ldiv!(chol, β)
+        # Allocate space for predicted values (ŷ) with the same structure as Y
         ŷ = similar(Y)
+        # Compute predicted values in-place (ŷ = X * β)
         mul!(ŷ, X, β)
-        # compute residuals and sum of squared residuals
+        # compute residuals
         ε = Y - ŷ
-        SSR = ε ⋅ ε
-
-        # nobs ands degrees of freedom
-        n, p = size(X)
+        # Determine the number of observations (n) and the number of predictors (p)
+        (n, p) = size(X)
+        # Calculate the degrees of freedom for residuals
         ν = n - p
-
         # residual variance
-        σ² = SSR / ν
-
+        σ² = ε ⋅ ε / ν
         # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
         if isa(yt, FunctionTerm)
           # Apply the function-specific prediction logic
-          ŷ .= predictBiasCorrected(cols, yt, ŷ, σ²)
-          ε .= y - ŷ
+          # ŷ = predictBiasCorrected(cols, yt, ŷ, σ²)
+          predictBiasCorrected!(ŷ, cols, yt, σ²)
+          ε = cols[1] - ŷ
         end
 
-        # formula: y ~ β0 + continuous_terms
-        rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
-        ft = FormulaTerm(yt, rhs)
-
-        fittedmodels[iy, ix] = AllometricModel(ft, cols, β, ŷ, ε, σ², n, ν)
+        fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ŷ, ε, σ², n, ν)
 
       end
-      # catch
-      #   for iy in 1:ny
-      #     fittedmodels[iy, ix] = missing
-      #   end
-      # end
-    end
-
-  else
-    # Continuous + Categorical Variables
-    # Pre-calculate Q matrix and sum term once
-    Qsum = sum(qterms)
-    Qmatrix = modelmatrix(Qsum, cols)
-
-    Threads.@threads for ix in 1:nx
-      c = combinations[ix]
-
-      # construct X: Intercept + Continuous Columns + Q Matrix
-      X = hcat(X0, map(last, c)..., Qmatrix)
-
-      try
-        XtX = X' * X
-        chol = cholesky!(Symmetric(XtX))
-
-        for iy in 1:ny
-          (yt, Y) = ylist[iy]
-          Xty = X' * Y
-          β = ldiv!(chol, Xty)
-
-          ŷ = similar(Y)
-          mul!(ŷ, X, β)
-
-          # compute residuals and sum of squared residuals
-          ε = Y - ŷ
-          SSR = ε ⋅ ε
-
-          # nobs ands degrees of freedom
-          n, p = size(X)
-          ν = n - p
-
-          # residual variance
-          σ² = SSR / ν
-
-          # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
-          if isa(yt, FunctionTerm)
-            # Apply the function-specific prediction logic
-            ŷ .= predictBiasCorrected(cols, yt, ŷ, σ²)
-            ε .= y - ŷ
-          end
-
-          # formula: y ~ β0 + continuous_terms + q_terms
-          rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
-          ft = FormulaTerm(yt, rhs)
-
-          fittedmodels[iy, ix] = AllometricModel(ft, cols, β, ŷ, ε, σ², n, ν)
-        end
-      catch
-        for iy in 1:ny
-          fittedmodels[iy, ix] = missing
-        end
+    catch
+      for iy in 1:ny
+        fittedmodels[iy, ix] = missing
       end
     end
+
   end
 
   # # flatten and remove missing fits
   fittedmodels = collect(skipmissing(vec(fittedmodels)))
-  isempty(fittedmodels) && error("failed to fit all Linear Regression Models")
+  isempty(fittedmodels) && error("failed to fit all Allometric Linear Regression Models")
 
   return fittedmodels
 
@@ -170,11 +120,14 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     cols = columntable(data)
   end
 
+  yname = Symbol(yname)
+  xnames = Symbol.(xnames)
+
   # Term Preparation
   yterm = concrete_term(term(yname), cols, ContinuousTerm)
 
   # apply schema to x terms
-  xschema = apply_schema(term.(xnames), StatsModels.schema(cols, hints))
+  xschema = apply_schema(term.(xnames), schema(cols, hints))
   xterms = xschema isa AbstractTerm ? AbstractTerm[xschema] : collect(AbstractTerm, xschema)
 
   # separate categorical (q) and continuous (x) terms
@@ -187,7 +140,7 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   ft = isempty(qterms) ? FormulaTerm(yterm, MatrixTerm(β0 + sum(xterms))) : FormulaTerm(yterm, MatrixTerm(β0 + sum(xterms) + sum(qterms)))
 
-  cols, _ = StatsModels.missing_omit(cols, ft)
+  cols, _ = missing_omit(cols, ft)
 
   # Build Transformation Groups (Continuous)
   termgroups = Vector{Vector{Tuple{AbstractTerm,Vector{Float64}}}}()
@@ -233,5 +186,5 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     end
   end
 
-  combinationsfit(model, collect(cols[yterm.sym]), cols, ylist, combinations, qterms)
+  combinationsfit(model, cols, ylist, combinations, qterms)
 end

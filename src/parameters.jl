@@ -1,112 +1,105 @@
 """
-    predictBiasCorrected(cols, ft, ẑ, σ²)
+    predictbiascorrected!(ẑ, cols, ft, σ²)
 
-Computes bias-corrected predictions on the original scale, accounting for the non-linear transformation of the error term (Jensen's Inequality).
-
-### Correction Strategies
-**Log-Normal (Exact):**
-For logarithmic transformations, applies the analytical solution for the mean of a log-normal distribution:
-``E[y] = \\exp(\\hat{z} + \\sigma^2/2)``
-
-**Delta Method (Approximate):**
-For other non-linear transformations (e.g., inverse, inverse square root), employs the Second-Order Delta Method. This uses a truncated Taylor Series expansion to adjust for the curvature of the inverse function:
-``E[y] \\approx g(\\hat{z}) + \\frac{1}{2}\\sigma^2 g''(\\hat{z})``
-
-# Arguments
-- `cols`: NamedTuple containing original data (required for interaction terms).
-- `ft`: The `FunctionTerm` from the model formula.
-- `ẑ`: Vector of predictions on the transformed scale (linear predictor).
-- `σ²`: The residual mean squared error (MSE) of the model.
-
-# References
-- Baskerville, G. L. (1972). Use of logarithmic regression in the estimation of plant biomass. *Canadian Journal of Forest Research*.
-- Carroll, R. J., & Ruppert, D. (1988). *Transformation and Weighting in Regression*. Chapman and Hall.
+In-place version. Overwrites `ẑ` with bias-corrected predictions.
 """
-function predictBiasCorrected(cols::NamedTuple, ft::FunctionTerm, ẑ::Vector{<:Real}, σ²::Real)
+function predictBiasCorrected!(ẑ::AbstractVector{<:Real}, cols::NamedTuple, ft::FunctionTerm, σ²::Real)
   fname = nameof(ft.f)
-  n = length(ẑ)
-  ŷ = similar(ẑ)
 
-  # Pre-fetch interaction column if required by the transformation
-  hasX = length(ft.args) > 1
-  xcol = hasX ? cols[ft.args[1].sym] : nothing
+  xcol = length(ft.args) > 1 ? cols[ft.args[2].sym] : nothing
 
-  @inbounds for i in 1:n
-    z = ẑ[i]
+  @inbounds for i in eachindex(ẑ)
+    z = ẑ[i]
 
-    # Exact analytical solution for Log-Normal distribution
     if fname == :log
-      ŷ[i] = exp(z + 0.5σ²)
-      continue
-    end
+      # log-normal (exact)
+      ẑ[i] = exp(z + σ² / 2)
 
-    g = 0.0
-    ∂²g = 0.0
-
-    # Compute inverse function g(z) and curvature ∂²g(z)
-    if fname == :inv
+    elseif fname == :inv
+      # inverse (1/y)
       g = 1 / z
       ∂²g = 2 / (z^3)
+      ẑ[i] = g + σ² / 2 * ∂²g
 
     elseif fname == :inversesqrt
-      g = 1 / (z^2)
-      ∂²g = 6 / (z^4)
+      # inverse sqrt (1/√y)
+      z² = z^2
+      g = 1 / z²
+      ∂²g = 6 / (z²^2)
+      ẑ[i] = g + σ² / 2 * ∂²g
 
     elseif fname == :xoversqrty
+      # x/√y
       x = xcol[i]
-      x² = abs2(x)
-      g = x² / (z^2)
-      ∂²g = 6x² / (z^4)
+      x² = x^2
+      z² = z^2
+
+      g = x² / z²
+      ∂²g = (6 * x²) / (z²^2)
+      ẑ[i] = g + σ² / 2 * ∂²g
 
     elseif fname == :xsquaredovery
+      # x^2/y
       x = xcol[i]
-      x² = abs2(x)
+      x² = x^2
+
       g = x² / z
-      ∂²g = 2x² / (z^3)
-
-    else
-      ŷ[i] = z
-      continue
+      ∂²g = (2 * x²) / (z^3)
+      ẑ[i] = g + σ² / 2 * ∂²g
     end
-
-    # Second-order Delta Method approximation
-    ŷ[i] = g + 0.5σ² * ∂²g
   end
 
-  return ŷ
 end
 
 """
     predict(model::AllometricModel)
-  
-The `predict` function family provides a versatile way to generate predictions from regression models, 
-  supporting both individual and grouped models. It handles predictions on the original scale even if the
-   dependent variable (`y`) has been transformed (e.g., `log(y)`), ensuring that any transformations 
-   applied during model fitting are correctly reversed, including the application of Meyer correction 
-   factors for logarithmic transformations.
 
-# Parameters:
-- `model`: 
-    The regression model(s) to be evaluated and compared. This parameter can accept:
-    - `AllometricModel`: A single linear regression model.
+Generates predictions from a regression model on the original scale of the dependent variable.
 
-# Returns:
-- `Vector{<:Real}` or `Vector{Union{Missing, <:Real}}`: The predicted values on the original scale of `y`, adjusted for any transformations and corrected using the Meyer factor for logarithmic transformations.
+This function automatically handles the back-transformation of the dependent variable (`y`) if it was transformed during model fitting (e.g., `log(y)`, `1/y`). Crucially, it applies statistical bias correction to account for the non-linear transformation of the error term (Jensen's Inequality), ensuring unbiased estimates on the original scale.
 
-# Key Features:
-- **Handles Transformed Dependent Variables:** If the dependent variable was transformed (e.g., using log transformations), the function correctly inverts the transformation to return predictions on the original scale.
-- **Applies Meyer Correction Factor:** For models using logarithmic transformations, the Meyer correction factor is applied to the predictions to correct for the bias introduced by the log transformation.
+# Correction Strategies
 
-# Examples:
+The function detects the transformation used and applies the appropriate correction:
+
+**1. Log-Normal Correction (Exact):**
+For logarithmic transformations (`log(y)`), it applies the analytical solution for the mean of a log-normal distribution (often called the Meyer or Baskerville correction):
+``E[y] = \\exp(\\hat{z} + \\sigma^2/2)``
+
+**2. Delta Method Correction (Approximate):**
+For other non-linear transformations (e.g., `1/y`, `1/√y`), it employs the Second-Order Delta Method. This uses a truncated Taylor Series expansion to adjust for the curvature of the inverse function:
+``E[y] \\approx g(\\hat{z}) + \\frac{1}{2}\\sigma^2 g''(\\hat{z})``
+
+Where:
+* ``\\hat{z}`` is the prediction on the transformed scale (linear predictor).
+* ``g(\\cdot)`` is the inverse transformation function.
+* ``\\sigma^2`` is the residual mean squared error (MSE) of the model.
+
+# Parameters
+- `model`: An `AllometricModel` object containing the fitted regression parameters, formula, and residual variance.
+
+# Returns
+- `Vector{Float64}`: The predicted values on the original scale of `y`, adjusted for transformations and corrected for bias.
+
+# References
+- Baskerville, G. L. (1972). Use of logarithmic regression in the estimation of plant biomass. *Canadian Journal of Forest Research*.
+- Carroll, R. J., & Ruppert, D. (1988). *Transformation and Weighting in Regression*. Chapman and Hall.
+- Miller, D. M. (1984). Reducing transformation bias in curve fitting. *The American Statistician*.
+
+# Examples
 - **Single Model Prediction:**
   ```julia
-  y_pred = predict(model)
+  ypred = predict(model)
   ```
 """
 predict(model::AllometricModel) = model.ŷ
 
 function predict(model::AllometricModel, data)
-  cols = columntable(data)
+  if !Tables.istable(data)
+    throw(ArgumentError("data must be a valid table"))
+  else
+    cols = columntable(data)
+  end
   # Extract response vector (Y) and predictor matrix (X) from the model
   y, X = modelcols(model.formula, cols)
   # Number of observations
@@ -120,7 +113,7 @@ function predict(model::AllometricModel, data)
   ft = model.formula.lhs
   if isa(ft, FunctionTerm)
     # Apply the function-specific prediction logic
-    ŷ .= predictBiasCorrected(cols, ft, ŷ, model.σ²)
+    predictBiasCorrected!(ŷ, cols, ft, model.σ²)
   end
   # Return the vector of predicted values
   return ŷ
@@ -133,8 +126,7 @@ deviance(model::AllometricModel) = residuals(model) ⋅ residuals(model)
 function nulldeviance(model::AllometricModel)
   ft = model.formula.lhs
   if ft isa FunctionTerm
-    hasX = length(ft.args) > 1
-    y = hasX ? model.cols[ft.args[2].sym] : model.cols[ft.args[1].sym]
+    y = model.cols[ft.args[1].sym]
   else
     y = model.cols[ft.sym]
   end

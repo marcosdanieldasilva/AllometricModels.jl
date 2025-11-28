@@ -1,7 +1,12 @@
 module AllometricModels
 
-using StatsAPI, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
+using StatsBase, Statistics, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
 # Distributions, HypothesisTests not used by now
+import StatsBase: coef, coeftable, coefnames, confint, deviance, nulldeviance, dof, dof_residual,
+  loglikelihood, nullloglikelihood, nobs, stderror, vcov,
+  residuals, predict, predict!,
+  fitted, fit, model_response, response, modelmatrix, r2, r², adjr2, adjr², PValue
+import StatsModels: missing_omit, formula
 
 function combinationsfit(model, args...)
   error("Backend for $model not loaded or implemented.")
