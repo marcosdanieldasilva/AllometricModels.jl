@@ -331,7 +331,3 @@ function adjr2(model::AllometricModel; scale=:original)
   ν = dof_residual(model)
   return 1 - (1 - rsq) * (n - 1) / ν
 end
-
-# Unicode Aliases
-r²(model::AllometricModel; scale=:original) = r2(model, scale=scale)
-adjr²(model::AllometricModel; scale=:original) = adjr2(model, scale=scale)
