@@ -1,7 +1,7 @@
 module AllometricModels
 
-using StatsBase, Statistics, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
-# Distributions, HypothesisTests not used by now
+using StatsBase, Distributions, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
+# , HypothesisTests not used by now
 import StatsBase: coef, coeftable, coefnames, confint, deviance, nulldeviance, dof, dof_residual,
   loglikelihood, nullloglikelihood, nobs, stderror, vcov,
   residuals, predict, predict!,
