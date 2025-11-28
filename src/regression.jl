@@ -105,7 +105,6 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   isempty(fittedmodels) && error("failed to fit all Allometric Linear Regression Models")
 
   return fittedmodels
-
 end
 
 function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), model=AllometricModel)
