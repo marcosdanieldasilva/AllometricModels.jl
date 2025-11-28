@@ -34,10 +34,13 @@ Represents a fitted linear model.
 struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,I<:Int64} <: RegressionModel
   formula::F
   cols::N
-  β::Array{T,1}
-  ŷ::Array{T,1}
-  ε::Array{T,1}
+  β::Vector{T}
+  ẑ::Vector{T}
+  ε::Vector{T}
+  ŷ::Vector{T}
+  εᵣ::Vector{T}
   σ²::T
+  Σ::Matrix{T}
   n::I
   ν::I
 end

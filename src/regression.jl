@@ -55,41 +55,51 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
     if isempty(qterms)
       X = hcat(X0, map(last, c)...)
       rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
+      ncontinuous = count(t -> !isa(t, InterceptTerm), rhs.terms)
     else
       X = hcat(X0, map(last, c)..., Qmatrix)
       rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
+      ncontinuous = count(t -> !isa(t, InterceptTerm) && !isa(t, CategoricalTerm), rhs.terms)
     end
+
+    # define range to check
+    checkrange = 2:(1+ncontinuous)
 
     try
       chol = cholesky!(X'X)
 
       for iy in 1:ny
-        (yt, Y) = ylist[iy]
-        # β = (X'X)⁻¹ * (X'Y)
-        β = X'Y
+        (yt, y) = ylist[iy]
+        # β = (X'X)⁻¹ * (X'y)
+        β = X'y
         # Solve for regression coefficients β in-place using the Cholesky factor
         ldiv!(chol, β)
-        # Allocate space for predicted values (ŷ) with the same structure as Y
-        ŷ = similar(Y)
-        # Compute predicted values in-place (ŷ = X * β)
-        mul!(ŷ, X, β)
+        # Allocate space for predicted values (ẑ) with the same structure as y
+        ẑ = similar(y)
+        # Compute predicted values in-place (ẑ = X * β)
+        mul!(ẑ, X, β)
         # compute residuals
-        ε = Y - ŷ
+        ε = y - ẑ
         # Determine the number of observations (n) and the number of predictors (p)
         (n, p) = size(X)
         # Calculate the degrees of freedom for residuals
         ν = n - p
         # residual variance
         σ² = ε ⋅ ε / ν
+        # compute dispersion matrix
+        Σ = rmul!(inv(chol), σ²)
         # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
         if isa(yt, FunctionTerm)
           # Apply the function-specific prediction logic
-          # ŷ = predictBiasCorrected(cols, yt, ŷ, σ²)
-          predictBiasCorrected!(ŷ, cols, yt, σ²)
-          ε = cols[1] - ŷ
+          # ẑ = predictBiasCorrected(cols, yt, ẑ, σ²)
+          ŷ = predictbiascorrected(ẑ, cols, yt, σ²)
+          εᵣ = cols[1] - ŷ
+        else
+          ŷ = ẑ
+          εᵣ = ε
         end
-
-        fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ŷ, ε, σ², n, ν)
+        # store fitted model
+        fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ẑ, ε, ŷ, εᵣ, σ², Σ, n, ν)
 
       end
     catch

@@ -1,11 +1,11 @@
 module AllometricModels
 
-using StatsBase, Distributions, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
-# , HypothesisTests not used by now
-import StatsBase: coef, coeftable, coefnames, confint, deviance, nulldeviance, dof, dof_residual,
-  loglikelihood, nullloglikelihood, nobs, stderror, vcov,
-  residuals, predict, predict!,
-  fitted, fit, model_response, response, modelmatrix, r2, r², adjr2, adjr², PValue
+using StatsBase, Distributions, HypothesisTests, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
+
+import StatsAPI: coef, coeftable, coefnames, confint, deviance, nulldeviance, dof, dof_residual, loglikelihood,
+  nullloglikelihood, nobs, stderror, vcov, residuals, predict, predict!, fitted, fit, response,
+  modelmatrix, r2, r², adjr2, adjr², pvalue
+
 import StatsModels: missing_omit, formula
 
 function combinationsfit(model, args...)
@@ -17,16 +17,29 @@ include("parameters.jl")
 include("regression.jl")
 include("io.jl")
 
-export regression,
-  AllometricModel,
-  predict,
-  residuals,
+# Export Main Interface
+export regression, AllometricModel,
+  # Export StatsModels Types (Necessary for 'hints' argument)
+  ContinuousTerm, CategoricalTerm,
+  # Export StatsAPI Methods (So user can call them directly)
+  coef,
+  coefnames,
+  coeftable,
+  confint,
+  vcov,
+  stderror,
+  loglikelihood,
+  nullloglikelihood,
   deviance,
   nulldeviance,
   nobs,
+  dof,
   dof_residual,
-  r2,
-  adjr2,
-  formula
+  r2, r²,           # Unicode alias included
+  adjr2, adjr²,     # Unicode alias included
+  predict, fitted,
+  residuals,
+  response,
+  pvalue
 
 end
