@@ -110,20 +110,21 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
         r² = 1 - sse / sst
         # Compute the adjusted R², penalized for the number of predictors
         adjr² = 1 - (1 - r²) * (n - 1) / ν
-        # Willmott’s index of agreement (d)
-        z = abs.(ŷ .- ȳ) .+ abs.(y .- ȳ)
-        d = 1 - sse / (z ⋅ z)
+        # Explained Variance (EV)
+        ev = 1.0 - (var(ε) / var(yᵣ))
         # Calculate the Mean Absolute Error (MAE) as the average absolute residual value
         mae = mean(abs, ε)
-        # Calculate the variance of the residuals
-        s²ᵧₓ = sse / ν
-        # Standard Error of the Estimate (Syx - Absolute)
-        sᵧₓ = √(s²ᵧₓ)
+        # Calculate Mean Absolute Percentage Error (MAPE)
+        mape = mean(abs.(ε) ./ abs.(yᵣ)) * 100
+        # Calculate the variance of the residuals (Mean Squared Error - Unbiased)
+        mse = sse / ν
+        # Standard Error of the Estimate (RMSE - Absolute)
+        rmse = √(mse)
         # Standard Error of the Estimate % (Syx% - Relative)
-        sᵧₓpct = (sᵧₓ / ȳ) * 100
+        cv = (rmse / ȳ) * 100
         # store fitted model
         fittedmodels[iy, ix] = AllometricModel(
-          FormulaTerm(yt, rhs), cols, β, Σ, σ², n, ν, p, sse, sst, r², adjr², d, mae, s²ᵧₓ, sᵧₓ, sᵧₓpct, normality)
+          FormulaTerm(yt, rhs), cols, β, Σ, σ², n, ν, p, sse, sst, r², adjr², ev, mae, mape, mse, rmse, cv, normality)
       end
     catch
       for iy in 1:ny
@@ -239,3 +240,4 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   combinationsfit(model, cols, ylist, combinations, qterms)
 end
+

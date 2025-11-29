@@ -230,7 +230,7 @@ function predict(model::AllometricModel, data)
 end
 
 function predict!(dest::AbstractVector{<:Real}, model::AllometricModel)
-  tmp = predict(model, scale=scale)
+  tmp = predict(model)
   resize!(dest, length(tmp))
   copyto!(dest, tmp)
   return dest
@@ -260,11 +260,11 @@ function nullloglikelihood(model::AllometricModel)
   return -n / 2 * (log(2 * π) + 1 + log(tss / n))
 end
 
-r2(model::AllometricModel) = model.r²
+r2(model::AllometricModel) = model.r2
 
-adjr2(model::AllometricModel) = model.adjr²
+adjr2(model::AllometricModel) = model.adjr2
 
-dispersion(model::AllometricModel, sqr::Bool=false) = sqr ? model.s²ᵧₓ : model.sᵧₓ
+dispersion(model::AllometricModel, sqr::Bool=false) = sqr ? model.mse : model.rmse
 
 function StatsBase.cooksdistance(model::AllometricModel)
   u = residuals(model)

@@ -56,12 +56,13 @@ struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,I<:Int64,B<:Bool}
   p::I              # Number of Parameters
   sse::T            # Sum of Squared Errors
   sst::T            # Total Sum of Squares
-  r²::T             # Generalized R²
-  adjr²::T          # Adjusted Generalized R²
-  d::T              # Willmott's Index of Agreement
+  r2::T             # Generalized R²
+  adjr2::T          # Adjusted Generalized R²
+  ev::T             # Explained Variance
   mae::T            # Mean Absolute Error
-  s²ᵧₓ::T           # Variance of the Estimate Error
-  sᵧₓ::T            # Standard Error of Estimate (Absolute)
-  sᵧₓpct::T         # Standard Error of Estimate (%)
-  normality::B      # Shapiro-Wilk / Jarque-Bera (on ε)
+  mape::T           # Mean Absolute Percentage Error (%)
+  mse::T            # Mean Squared Error
+  rmse::T           # Root Mean Squared Error
+  cv::T             # Coefficient of Variation of RMSE (%)
+  normality::B      # Normality check on transformed residuals
 end

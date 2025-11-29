@@ -15,6 +15,7 @@ end
 include("structs.jl")
 include("parameters.jl")
 include("regression.jl")
+include("selectioncriteria.jl")
 include("io.jl")
 
 # Export Main Interface
@@ -51,6 +52,8 @@ export regression, AllometricModel,
   modelmatrix,
   isnormality,
   vif,
-  gvif
+  gvif,
+  criteriatable,
+  bestmodel
 
 end
