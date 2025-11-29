@@ -1,20 +1,28 @@
-transformXTerm(xterm::AbstractTerm) = AbstractTerm[
-  xterm
-  FunctionTerm(x -> x^2, [xterm], :($(xterm)^2))
-  FunctionTerm(x -> x^3, [xterm], :($(xterm)^3))
-  FunctionTerm(log, [xterm], :(log($(xterm))))
-  FunctionTerm(x -> log(x)^2, [xterm], :(log($(xterm))^2))
-  FunctionTerm(x -> log(x)^3, [xterm], :(log($(xterm))^3))
-  FunctionTerm(inv, [xterm], :($(xterm)^-1))
-  FunctionTerm(x -> 1 / x^2, [xterm], :($(xterm)^-2))
-  FunctionTerm(x -> 1 / x^3, [xterm], :($(xterm)^-3))
+expandxterms(xterm::AbstractTerm) = AbstractTerm[
+  xterm,
+  # polynomials (shape)
+  FunctionTerm(x -> x^1.5, [xterm], :($(xterm)^1.5)),
+  FunctionTerm(x -> x^2, [xterm], :($(xterm)^2)),
+  FunctionTerm(x -> x^3, [xterm], :($(xterm)^3)),
+  # fractional/root (stabilization)
+  FunctionTerm(sqrt, [xterm], :(√$(xterm))),
+  FunctionTerm(cbrt, [xterm], :(∛$(xterm))),
+  # logarithmic (growth behavior)
+  FunctionTerm(log, [xterm], :(log($(xterm)))),
+  FunctionTerm(x -> log(x)^2, [xterm], :(log($(xterm))^2)),
+  FunctionTerm(x -> log(x)^3, [xterm], :(log($(xterm))^3)),
+  # inverse (asymptotic)
+  FunctionTerm(x -> x^-0.5, [xterm], :($(xterm)^-0.5)),
+  FunctionTerm(inv, [xterm], :($(xterm)^-1)),
+  FunctionTerm(x -> x^-2, [xterm], :($(xterm)^-2)),
+  FunctionTerm(x -> x^-3, [xterm], :($(xterm)^-3))
 ]
 
 inversesqrt(y::Real) = 1 / √y
 xoversqrty(y::Real, x::Real) = x / √y
 xsquaredovery(y::Real, x::Real) = x^2 / y
 
-function transformYTerm(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
+function transformyterms(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   ylist = AbstractTerm[
     yterm
     FunctionTerm(log, [yterm], :(log($yterm)))
@@ -37,16 +45,19 @@ end
 function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
   # pre-calculate intercept column
   X0 = modelcols(β0, cols)
-
+  # dependent variable column
+  y = cols[1]
+  # total sum of squares
+  ȳ = mean(y)
+  SST = sum(abs2, y .- ȳ)
   # pre-calculate categorical column(s)
   if !isempty(qterms)
     Qsum = sum(qterms)
     Qmatrix = modelmatrix(Qsum, cols)
   end
-
+  # pre-allocate output matrix
   nx = length(combinations)
   ny = length(ylist)
-  # pre-allocate output matrix
   fittedmodels = Matrix{Union{Missing,AllometricModel}}(undef, ny, nx)
 
   Threads.@threads for ix in 1:nx
@@ -61,7 +72,6 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
       rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
       ncontinuous = count(t -> !isa(t, InterceptTerm) && !isa(t, CategoricalTerm), rhs.terms)
     end
-
     # define range to check
     checkrange = 2:(1+ncontinuous)
 
@@ -95,15 +105,12 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
           # Apply the function-specific prediction logic
           # ẑ = predictBiasCorrected(cols, yt, ẑ, σ²)
           ŷ = predictbiascorrected(ẑ, cols, yt, σ²)
-          εᵣ = cols[1] - ŷ
+          εᵣ = y - ŷ
           SSE = εᵣ ⋅ εᵣ
         else
           ŷ = ẑ
           εᵣ = ε
         end
-        # total sum of squares
-        ȳ = mean(cols[1])
-        SST = sum(abs2, cols[1] .- ȳ)
         # store fitted model
         fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ẑ, ε, ŷ, εᵣ, σ², Σ, n, ν, SSE, SST)
 
@@ -123,7 +130,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   return fittedmodels
 end
 
-function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), model=AllometricModel)
+function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=2, nmax::Int=3)
   # Input Validation
   if isempty(xnames)
     throw(ArgumentError("no independent variables provided"))
@@ -133,6 +140,20 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     throw(ArgumentError("data must be a valid table"))
   else
     cols = columntable(data)
+  end
+
+  if nmin < 1
+    throw(ArgumentError("nmin must be >= 1"))
+  end
+
+  if nmax < nmin
+    throw(ArgumentError("nmax must be >= nmin"))
+  end
+
+  # --- CORREÇÃO: Limite Rígido de Segurança ---
+  if nmax > 5
+    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 5). " * "Models with more than 5 terms (e.g., degree > 5) cause severe overfitting, " *
+                        "numerical instability (singular matrices), and lack biological meaning."))
   end
 
   yname = Symbol(yname)
@@ -164,10 +185,14 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
   for var in xterms
     subgroup = Tuple{AbstractTerm,Vector{Float64}}[]
 
-    for t in transformXTerm(var)
+
+
+    for t in expandxterms(var)
       try
         col = modelcols(t, cols)
-        push!(subgroup, (t, col))
+        if all(isfinite, col)
+          push!(subgroup, (t, col))
+        end
       catch
         # ignore invalid transforms
       end
@@ -184,7 +209,7 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   # generate combinations (continuous part only)
   combinations = if length(termgroups) == 1
-    TermTuple[Tuple(c) for c in powerset(termgroups[1], 1, 3)]
+    TermTuple[Tuple(c) for c in powerset(termgroups[1], nmin, nmax)]
   else
     TermTuple[Tuple(g) for g in Iterators.product(termgroups...)] |> vec
   end
@@ -192,10 +217,12 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
   # Build y List
   ylist = Vector{Tuple{AbstractTerm,Vector{Float64}}}()
 
-  for t in transformYTerm(yterm, xterms)
+  for t in transformyterms(yterm, xterms)
     try
       v = modelcols(t, cols)
-      push!(ylist, (t, v))
+      if all(isfinite, v)
+        push!(ylist, (t, v))
+      end
     catch
       # ignore invalid transforms
     end
