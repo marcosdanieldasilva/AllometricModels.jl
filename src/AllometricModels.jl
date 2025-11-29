@@ -25,6 +25,7 @@ export regression, AllometricModel,
   formula,
   coef,
   coefnames,
+  termnames,
   coeftable,
   confint,
   vcov,
@@ -36,11 +37,20 @@ export regression, AllometricModel,
   nobs,
   dof,
   dof_residual,
-  r2, r²,           # Unicode alias included
-  adjr2, adjr²,     # Unicode alias included
-  predict, fitted,
+  r2,
+  r²,
+  adjr2,
+  adjr²,
+  dispersion,
+  cooksdistance,
+  predict,
+  fitted,
   residuals,
   response,
-  pvalue
+  pvalue,
+  modelmatrix,
+  isnormality,
+  vif,
+  gvif
 
 end
