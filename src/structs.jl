@@ -3,11 +3,11 @@ const S = Union{Symbol,String}
 const TermTuple = Tuple{Vararg{Tuple{AbstractTerm,Vector{Float64}}}}
 
 """
-    const β0 = InterceptTerm{true}()
+    const β₀ = InterceptTerm{true}()
 
 Represents an intercept term for linear models.
 """
-const β0 = InterceptTerm{true}()
+const β₀ = InterceptTerm{true}()
 
 """
     struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,B<:Bool}
@@ -31,18 +31,23 @@ Represents a fitted linear model.
 - `normality::B`: Boolean flag indicating whether residuals follow a normal distribution (`true` or `false`).
 - `significance::B`: Boolean flag indicating whether all coefficients are statistically significant (`true` if all p-values < 0.05).
 """
-struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,I<:Int64} <: RegressionModel
-  formula::F
-  cols::N
-  β::Vector{T}
-  ẑ::Vector{T}
-  ε::Vector{T}
-  ŷ::Vector{T}
-  εᵣ::Vector{T}
-  σ²::T
-  Σ::Matrix{T}
-  n::I
-  ν::I
-  SSE::T
-  SST::T
+struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,I<:Int64,B<:Bool} <: RegressionModel
+  formula::F        # Formula
+  cols::N           # Data (NamedTuple))
+  β::Vector{T}      # Coefficients
+  Σ::Matrix{T}      # Covariance Matrix
+  σ²::T             # Residual Variance
+  n::I              # Number of Observations
+  ν::I              # Degrees of Freedom (Residual)
+  p::I              # Number of Parameters
+  sse::T            # Sum of Squared Errors
+  sst::T            # Total Sum of Squares
+  r²::T             # Generalized R²
+  adjr²::T          # Adjusted Generalized R²
+  d::T              # Willmott's Index of Agreement
+  mae::T            # Mean Absolute Error
+  s²ᵧₓ::T           # Mean Squared Error
+  sᵧₓ::T            # Standard Error of Estimate (Absolute)
+  sᵧₓpct::T         # Standard Error of Estimate (%)
+  normality::B      # Shapiro-Wilk / Jarque-Bera (on ε)
 end

@@ -24,22 +24,7 @@ function isnormality(x::AbstractVector{<:Real})
   end
 end
 
-isnormality(model::AllometricModel; scale=:transformed) = isnormality(residuals(model, scale=scale))
-
-function issignificant(model::AllometricModel)
-  # compute standard errors
-  standarderrors = sqrt.(diag(model.Σ))
-  # calculate t-statistics
-  tvalues = model.β ./ standarderrors
-  # calculate p-values (two-tailed)
-  pvalues = 2 .* ccdf.(TDist(dof_residual(model)), abs.(tvalues))
-  # we count terms that are NOT Intercept and NOT Categorical
-  ncontinuous = count(t -> !isa(t, InterceptTerm) && !isa(t, CategoricalTerm), formula(model).rhs.terms)
-  # define range to check
-  checkrange = 2:(1+ncontinuous)
-  # 0.05 (95%) is the standard scientific cutoff
-  all(view(pvalues, checkrange) .< 0.05)
-end
+isnormality(model::AllometricModel) = model.normality
 
 # --- Basic Model Properties ---
 
@@ -47,7 +32,7 @@ nobs(model::AllometricModel) = model.n
 
 dof_residual(model::AllometricModel) = model.ν
 
-dof(model::AllometricModel) = length(model.β)
+dof(model::AllometricModel) = length(model.β) + 1
 
 formula(model::AllometricModel) = model.formula
 
@@ -65,7 +50,6 @@ function confint(model::AllometricModel; level::Real=0.95)
   h = 1 - (1 - level) / 2
   tdist = TDist(dof_residual(model))
   crit = quantile(tdist, h)
-
   se = stderror(model)
   return hcat(model.β .- crit .* se, model.β .+ crit .* se)
 end
@@ -106,59 +90,39 @@ end
 
 modelmatrix(model::AllometricModel) = modelcols(model.formula.rhs, model.cols)
 
-function response(model::AllometricModel; scale=:original)
-  if scale == :original
-    # return observed y on original scale (reconstructed)
-    return model.ŷ .+ model.εᵣ
-  elseif scale == :transformed
-    # return observed y on transformed scale (linearized)
-    return model.ẑ .+ model.ε
-  else
-    throw(ArgumentError("scale must be :original or :transformed"))
-  end
-end
+response(model::AllometricModel) = model.cols[1]
 
 """
-    predictbiascorrected(ẑ, cols, ft, σ²)
+    predictbiascorrected!(ŷ, cols, ft, σ²)
 
-Calculates the bias-corrected predictions (ŷ) on the original scale, based on the transformed linear predictor (ẑ).
-Uses the Log-Normal correction for logarithmic models and the Second-Order Delta Method for inverse models.
-
-This function creates and returns a new vector `ŷ`, leaving `ẑ` unchanged.
+In-place version. Overwrites the input vector `ŷ` with the bias-corrected predictions on the original scale.
 """
-function predictbiascorrected(ẑ::Vector{<:Real}, cols::NamedTuple, ft::FunctionTerm, σ²::Real)
+function predictbiascorrected!(ŷ::Vector{<:Real}, cols::NamedTuple, ft::FunctionTerm, σ²::Real)
   fname = nameof(ft.f)
-  n = length(ẑ)
+  n = length(ŷ)
 
-  # Allocate new vector for the corrected predictions (Original Scale)
-  ŷ = similar(ẑ)
-
-  # If no transformation, ŷ is just a copy of ẑ (identity)
+  # If no transformation, do nothing (ŷ remains unchanged)
   if fname ∉ (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
-    copyto!(ŷ, ẑ)
-    return ŷ
+    return
   end
 
   # Pre-fetch interaction column if required
   # Check args length to avoid bounds error
   xcol = length(ft.args) > 1 ? cols[ft.args[2].sym] : nothing
 
-  # Pre-calculate constants
-  halfvariance = 0.5 * σ²
-
-  @inbounds for i in 1:n
-    z = ẑ[i]
+  @inbounds @simd for i in 1:n
+    z = ŷ[i]
 
     if fname == :log
       # log-normal (exact)
-      ŷ[i] = exp(z + halfvariance)
+      ŷ[i] = exp(z + 0.5σ²)
 
     elseif fname == :inv
       # inverse (1/y)
       # g(z) = 1/z,  ∂²g = 2/z^3
       g = 1 / z
       ∂²g = 2 / (z^3)
-      ŷ[i] = g + halfvariance * ∂²g
+      ŷ[i] = g + 0.5σ² * ∂²g
 
     elseif fname == :inversesqrt
       # inverse sqrt (1/√y)
@@ -166,7 +130,7 @@ function predictbiascorrected(ẑ::Vector{<:Real}, cols::NamedTuple, ft::Functio
       z² = z^2
       g = 1 / z²
       ∂²g = 6 / (z²^2)
-      ŷ[i] = g + halfvariance * ∂²g
+      ŷ[i] = g + 0.5σ² * ∂²g
 
     elseif fname == :xoversqrty
       # x/√y
@@ -177,7 +141,7 @@ function predictbiascorrected(ẑ::Vector{<:Real}, cols::NamedTuple, ft::Functio
 
       g = x² / z²
       ∂²g = (6 * x²) / (z²^2)
-      ŷ[i] = g + halfvariance * ∂²g
+      ŷ[i] = g + 0.5σ² * ∂²g
 
     elseif fname == :xsquaredovery
       # x^2/y
@@ -187,11 +151,9 @@ function predictbiascorrected(ẑ::Vector{<:Real}, cols::NamedTuple, ft::Functio
 
       g = x² / z
       ∂²g = (2 * x²) / (z^3)
-      ŷ[i] = g + halfvariance * ∂²g
+      ŷ[i] = g + 0.5σ² * ∂²g
     end
   end
-
-  return ŷ
 end
 
 """
@@ -235,19 +197,11 @@ Where:
   ypred = predict(model)
   ```
 """
-function predict(model::AllometricModel; scale=:original)
-  if scale == :original
-    return model.ŷ
-  elseif scale == :transformed
-    return model.ẑ
-  else
-    throw(ArgumentError("scale must be :original or :transformed"))
-  end
-end
+predict(model::AllometricModel) = predict(model, model.cols)
 
-fitted(model::AllometricModel; scale=:original) = predict(model, scale=scale)
+fitted(model::AllometricModel) = predict(model)
 
-function predict(model::AllometricModel, data; scale=:original)
+function predict(model::AllometricModel, data)
   if !Tables.istable(data)
     throw(ArgumentError("data must be a valid table"))
   else
@@ -258,28 +212,24 @@ function predict(model::AllometricModel, data; scale=:original)
   # Generate the model matrix (design matrix) from the input data
   X = modelmatrix(formula(model).rhs, x)
   # Compute the predicted values: ŷ = X * β
-  ẑ = X * coef(model)
-  if scale == :original
-    # Handle special cases where the left-hand side (lhs) is a function term
-    ft = formula(model).lhs
-    if isa(ft, FunctionTerm)
-      # Apply the function-specific prediction logic
-      # Overwrite ẑ with the corrected values using the filtered data 'x'
-      ẑ = predictbiascorrected(ẑ, x, ft, model.σ²)
-    end
-  elseif scale != :transformed
-    throw(ArgumentError("scale must be :original or :transformed"))
+  ŷ = X * coef(model)
+  # Handle special cases where the left-hand side (lhs) is a function term
+  ft = formula(model).lhs
+  if isa(ft, FunctionTerm)
+    # Apply the function-specific prediction logic
+    # Overwrite ŷ with the corrected values using the filtered data 'x'
+    predictbiascorrected!(ŷ, x, ft, model.σ²)
   end
-
+  # Return predictions in the original data order, reinserting missing values
   StatsModels._return_predictions(
     Tables.materializer(data),
-    ẑ,
+    ŷ,
     nonmissings,
     length(nonmissings)
   )
 end
 
-function predict!(dest::AbstractVector{<:Real}, model::AllometricModel; scale=:original)
+function predict!(dest::AbstractVector{<:Real}, model::AllometricModel)
   tmp = predict(model, scale=scale)
   resize!(dest, length(tmp))
   copyto!(dest, tmp)
@@ -288,65 +238,42 @@ end
 
 # --- Residuals & Deviance ---
 
-function residuals(model::AllometricModel; scale=:original)
-  if scale == :original
-    # return residuals on original scale (observed - predicted)
-    return model.εᵣ
-  elseif scale == :transformed
-    # return residuals on transformed scale (statistical residuals)
-    return model.ε
-  else
-    throw(ArgumentError("scale must be :original or :transformed"))
-  end
-end
+residuals(model::AllometricModel) = response(model) - predict(model)
 
-function deviance(model::AllometricModel; scale=:original)
-  if scale == :original
-    return model.SSE
-  else
-    res = residuals(model, scale=:trasformed)
-    return res ⋅ res
-  end
-end
+deviance(model::AllometricModel) = model.sse
 
-function nulldeviance(model::AllometricModel; scale=:original)
-  if scale == :original
-    return model.SST
-  else
-    y = response(model, scale=:trasformed)
-    ȳ = mean(y)
-    return sum(abs2, y .- ȳ)
-  end
-end
+nulldeviance(model::AllometricModel) = model.sst
 
 # ---  Goodness of Fit (Likelihood & R²) ---
 
-function loglikelihood(model::AllometricModel; scale=:original)
+function loglikelihood(model::AllometricModel)
   n = nobs(model)
   # uses transformed residuals because Gaussian assumptions hold there
-  rss = deviance(model, scale=:scale)
+  rss = deviance(model)
   return -n / 2 * (log(2 * π) + 1 + log(rss / n))
 end
 
-function nullloglikelihood(model::AllometricModel; scale=:original)
+function nullloglikelihood(model::AllometricModel)
   n = nobs(model)
   # uses transformed y for consistency with loglikelihood
-  tss = nulldeviance(model, scale=scale)
+  tss = nulldeviance(model)
   return -n / 2 * (log(2 * π) + 1 + log(tss / n))
 end
 
-function r2(model::AllometricModel; scale=:original)
-  # calculates r2 based on the requested scale
-  # if scale=:original, this is the generalized r² (pseudo-r²)
-  dev = deviance(model, scale=scale)
-  nulldev = nulldeviance(model, scale=scale)
+r2(model::AllometricModel) = model.r²
 
-  return 1 - (dev / nulldev)
-end
+adjr2(model::AllometricModel) = model.adjr²
 
-function adjr2(model::AllometricModel; scale=:original)
-  rsq = r2(model, scale=scale)
-  n = nobs(model)
-  ν = dof_residual(model)
-  return 1 - (1 - rsq) * (n - 1) / ν
+dispersion(model::AllometricModel, sqr::Bool=false) = sqr ? model.s²ᵧₓ : model.sᵧₓ
+
+function StatsBase.cooksdistance(model::AllometricModel)
+  u = residuals(model)
+  mse = dispersion(model, true)
+  k = dof(model) - 1
+  X = modelmatrix(model)
+  XtX = crossmodelmatrix(model)
+  k == size(X, 2) || throw(ArgumentError("Models with collinear terms are not currently supported."))
+  hii = diag(X * inv(XtX) * X')
+  D = @. u^2 * (hii / (1 - hii)^2) / (k * mse)
+  return D
 end

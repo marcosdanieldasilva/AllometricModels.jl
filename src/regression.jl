@@ -44,12 +44,12 @@ end
 
 function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
   # pre-calculate intercept column
-  X0 = modelcols(β0, cols)
-  # dependent variable column
-  y = cols[1]
+  X₀ = modelcols(β₀, cols)
+  # the real dependent variable
+  yᵣ = cols[1]
   # total sum of squares
-  ȳ = mean(y)
-  SST = sum(abs2, y .- ȳ)
+  ȳ = mean(yᵣ)
+  sst = sum(abs2, yᵣ .- ȳ)
   # pre-calculate categorical column(s)
   if !isempty(qterms)
     Qsum = sum(qterms)
@@ -64,19 +64,15 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
     c = combinations[ix]
 
     if isempty(qterms)
-      X = hcat(X0, map(last, c)...)
-      rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
-      ncontinuous = count(t -> !isa(t, InterceptTerm), rhs.terms)
+      X = hcat(X₀, map(last, c)...)
+      rhs = MatrixTerm(mapfoldl(first, +, c; init=β₀))
     else
-      X = hcat(X0, map(last, c)..., Qmatrix)
-      rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
-      ncontinuous = count(t -> !isa(t, InterceptTerm) && !isa(t, CategoricalTerm), rhs.terms)
+      X = hcat(X₀, map(last, c)..., Qmatrix)
+      rhs = MatrixTerm(mapfoldl(first, +, c; init=β₀) + Qsum)
     end
-    # define range to check
-    checkrange = 2:(1+ncontinuous)
 
     try
-      chol = cholesky!(X'X)
+      chol = cholesky!(Symmetric(X'X))
 
       for iy in 1:ny
         (yt, y) = ylist[iy]
@@ -84,36 +80,50 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
         β = X'y
         # Solve for regression coefficients β in-place using the Cholesky factor
         ldiv!(chol, β)
-        # Allocate space for predicted values (ẑ) with the same structure as y
-        ẑ = similar(y)
-        # Compute predicted values in-place (ẑ = X * β)
-        mul!(ẑ, X, β)
+        # Allocate space for predicted values (ŷ) with the same structure as y
+        ŷ = similar(y)
+        # Compute predicted values in-place (ŷ = X * β)
+        mul!(ŷ, X, β)
         # compute residuals
-        ε = y - ẑ
+        ε = y - ŷ
         # Determine the number of observations (n) and the number of predictors (p)
         (n, p) = size(X)
         # Calculate the degrees of freedom for residuals
         ν = n - p
         # sum of squared errors
-        SSE = ε ⋅ ε
+        sse = ε ⋅ ε
         # residual variance
-        σ² = ε ⋅ ε / ν
+        σ² = sse / ν
         # compute dispersion matrix
         Σ = rmul!(inv(chol), σ²)
+        # normality check of residuals
+        normality = isnormality(ε)
         # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
         if isa(yt, FunctionTerm)
           # Apply the function-specific prediction logic
-          # ẑ = predictBiasCorrected(cols, yt, ẑ, σ²)
-          ŷ = predictbiascorrected(ẑ, cols, yt, σ²)
-          εᵣ = y - ŷ
-          SSE = εᵣ ⋅ εᵣ
-        else
-          ŷ = ẑ
-          εᵣ = ε
+          # ŷ = predictBiasCorrected(cols, yt, ŷ, σ²)
+          predictbiascorrected!(ŷ, cols, yt, σ²)
+          ε = yᵣ - ŷ
+          sse = ε ⋅ ε
         end
+        # Compute the coefficient of determination (R²), a measure of model fit
+        r² = 1 - sse / sst
+        # Compute the adjusted R², penalized for the number of predictors
+        adjr² = 1 - (1 - r²) * (n - 1) / ν
+        # Willmott’s index of agreement (d)
+        z = abs.(ŷ .- ȳ) .+ abs.(y .- ȳ)
+        d = 1 - sse / (z ⋅ z)
+        # Calculate the Mean Absolute Error (MAE) as the average absolute residual value
+        mae = mean(abs, ε)
+        # Calculate the variance of the residuals
+        s²ᵧₓ = sse / ν
+        # Standard Error of the Estimate (Syx - Absolute)
+        sᵧₓ = √(s²ᵧₓ)
+        # Standard Error of the Estimate % (Syx% - Relative)
+        sᵧₓpct = (sᵧₓ / ȳ) * 100
         # store fitted model
-        fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ẑ, ε, ŷ, εᵣ, σ², Σ, n, ν, SSE, SST)
-
+        fittedmodels[iy, ix] = AllometricModel(
+          FormulaTerm(yt, rhs), cols, β, Σ, σ², n, ν, p, sse, sst, r², adjr², d, mae, s²ᵧₓ, sᵧₓ, sᵧₓpct, normality)
       end
     catch
       for iy in 1:ny
@@ -130,7 +140,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   return fittedmodels
 end
 
-function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=2, nmax::Int=3)
+function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3)
   # Input Validation
   if isempty(xnames)
     throw(ArgumentError("no independent variables provided"))
@@ -152,8 +162,9 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   # --- CORREÇÃO: Limite Rígido de Segurança ---
   if nmax > 5
-    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 5). " * "Models with more than 5 terms (e.g., degree > 5) cause severe overfitting, " *
-                        "numerical instability (singular matrices), and lack biological meaning."))
+    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 5). "
+                        * "Models with more than 5 terms (e.g., degree > 5) cause severe overfitting, "
+                        * "numerical instability (singular matrices), and lack biological meaning."))
   end
 
   yname = Symbol(yname)
@@ -174,7 +185,7 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     throw(ArgumentError("no continuous variables found"))
   end
 
-  ft = isempty(qterms) ? FormulaTerm(yterm, MatrixTerm(β0 + sum(xterms))) : FormulaTerm(yterm, MatrixTerm(β0 + sum(xterms) + sum(qterms)))
+  ft = isempty(qterms) ? FormulaTerm(yterm, MatrixTerm(β₀ + sum(xterms))) : FormulaTerm(yterm, MatrixTerm(β₀ + sum(xterms) + sum(qterms)))
 
   cols, _ = missing_omit(cols, ft)
 
@@ -184,8 +195,6 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   for var in xterms
     subgroup = Tuple{AbstractTerm,Vector{Float64}}[]
-
-
 
     for t in expandxterms(var)
       try
