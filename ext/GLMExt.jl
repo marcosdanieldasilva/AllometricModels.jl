@@ -2,7 +2,7 @@ module GLMExt
 
 using AllometricModels, GLM, StatsModels, Base.Threads
 
-import AllometricModels: combinationsfit, TermTuple, β0
+import AllometricModels: combinationsfit, TermTuple, β₀
 
 function AllometricModels.combinationsfit(::Type{LinearModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
   # pre-calculate intercept column
