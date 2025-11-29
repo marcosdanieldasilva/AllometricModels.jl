@@ -43,4 +43,6 @@ struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,I<:Int64} <: Regr
   Σ::Matrix{T}
   n::I
   ν::I
+  SSE::T
+  SST::T
 end

@@ -6,7 +6,7 @@ import StatsAPI: coef, coeftable, coefnames, confint, deviance, nulldeviance, do
   nullloglikelihood, nobs, stderror, vcov, residuals, predict, predict!, fitted, fit, response,
   modelmatrix, r2, r², adjr2, adjr², pvalue
 
-import StatsModels: missing_omit, formula
+import StatsModels: missing_omit, formula, modelmatrix
 
 function combinationsfit(model, args...)
   error("Backend for $model not loaded or implemented.")
@@ -22,6 +22,7 @@ export regression, AllometricModel,
   # Export StatsModels Types (Necessary for 'hints' argument)
   ContinuousTerm, CategoricalTerm,
   # Export StatsAPI Methods (So user can call them directly)
+  formula,
   coef,
   coefnames,
   coeftable,

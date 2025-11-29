@@ -84,6 +84,8 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
         (n, p) = size(X)
         # Calculate the degrees of freedom for residuals
         ν = n - p
+        # sum of squared errors
+        SSE = ε ⋅ ε
         # residual variance
         σ² = ε ⋅ ε / ν
         # compute dispersion matrix
@@ -94,12 +96,16 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
           # ẑ = predictBiasCorrected(cols, yt, ẑ, σ²)
           ŷ = predictbiascorrected(ẑ, cols, yt, σ²)
           εᵣ = cols[1] - ŷ
+          SSE = εᵣ ⋅ εᵣ
         else
           ŷ = ẑ
           εᵣ = ε
         end
+        # total sum of squares
+        ȳ = mean(cols[1])
+        SST = sum(abs2, cols[1] .- ȳ)
         # store fitted model
-        fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ẑ, ε, ŷ, εᵣ, σ², Σ, n, ν)
+        fittedmodels[iy, ix] = AllometricModel(FormulaTerm(yt, rhs), cols, β, ẑ, ε, ŷ, εᵣ, σ², Σ, n, ν, SSE, SST)
 
       end
     catch

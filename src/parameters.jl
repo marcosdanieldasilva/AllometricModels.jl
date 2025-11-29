@@ -81,14 +81,24 @@ function coeftable(model::AllometricModel; level::Real=0.95)
   cc = coef(model)
   se = stderror(model)
   tt = cc ./ se
-  pp = pvalue(model)
-
+  # use t-distribution based on residual degrees of freedom
+  dist = TDist(dof_residual(model))
+  # calculate p-values (two-tailed)
+  pp = 2 .* ccdf.(dist, abs.(tt))
+  # calculate confidence intervals
+  α = 1 - level
+  crit = quantile(dist, 1 - α / 2)
+  lower = cc .- crit .* se
+  upper = cc .+ crit .* se
+  # format level string (e.g., "95")
+  levstr = isinteger(level * 100) ? string(Integer(level * 100)) : string(level * 100)
+  # coefficient table
   StatsBase.CoefTable(
-    hcat(cc, se, tt, pp),
-    ["Coef.", "Std. Error", "t", "Pr(>|t|)"],
+    hcat(cc, se, tt, pp, lower, upper),
+    ["Coef.", "Std. Error", "t", "Pr(>|t|)", "Lower $levstr%", "Upper $levstr%"],
     coefnames(model),
-    4, # p-value column
-    3  # t-stat column
+    4, # p-value column index
+    3  # t-statistic column index
   )
 end
 
@@ -243,29 +253,30 @@ function predict(model::AllometricModel, data; scale=:original)
   else
     cols = columntable(data)
   end
-  # Extract response vector (Y) and predictor matrix (X) from the model
-  y, X = modelcols(formula(model), cols)
-  # Number of observations
-  n = length(y)
-  # Allocate memory for predicted values
-  ẑ = similar(Vector{Float64}, n)
-  # Compute predicted values: ŷ = X * β
-  # In-place multiplication for efficiency
-  mul!(ẑ, X, model.β)
-  if scale == :transformed
-    return ẑ
-  elseif scale == :original
+  # Remove missing values and prepare the input data for the model
+  x, nonmissings = missing_omit(cols, formula(model).rhs)
+  # Generate the model matrix (design matrix) from the input data
+  X = modelmatrix(formula(model).rhs, x)
+  # Compute the predicted values: ŷ = X * β
+  ẑ = X * coef(model)
+  if scale == :original
     # Handle special cases where the left-hand side (lhs) is a function term
     ft = formula(model).lhs
     if isa(ft, FunctionTerm)
       # Apply the function-specific prediction logic
-      return predictbiascorrected(ẑ, cols, ft, model.σ²)
+      # Overwrite ẑ with the corrected values using the filtered data 'x'
+      ẑ = predictbiascorrected(ẑ, x, ft, model.σ²)
     end
-    # Return the vector of predicted values
-    return ẑ
-  else
+  elseif scale != :transformed
     throw(ArgumentError("scale must be :original or :transformed"))
   end
+
+  StatsModels._return_predictions(
+    Tables.materializer(data),
+    ẑ,
+    nonmissings,
+    length(nonmissings)
+  )
 end
 
 function predict!(dest::AbstractVector{<:Real}, model::AllometricModel; scale=:original)
@@ -290,29 +301,37 @@ function residuals(model::AllometricModel; scale=:original)
 end
 
 function deviance(model::AllometricModel; scale=:original)
-  res = residuals(model, scale=scale)
-  return res ⋅ res
+  if scale == :original
+    return model.SSE
+  else
+    res = residuals(model, scale=:trasformed)
+    return res ⋅ res
+  end
 end
 
 function nulldeviance(model::AllometricModel; scale=:original)
-  y = response(model, scale=scale)
-  ȳ = mean(y)
-  return sum(abs2, y .- ȳ)
+  if scale == :original
+    return model.SST
+  else
+    y = response(model, scale=:trasformed)
+    ȳ = mean(y)
+    return sum(abs2, y .- ȳ)
+  end
 end
 
-# --- 5. Goodness of Fit (Likelihood & R²) ---
+# ---  Goodness of Fit (Likelihood & R²) ---
 
-function loglikelihood(model::AllometricModel)
+function loglikelihood(model::AllometricModel; scale=:original)
   n = nobs(model)
   # uses transformed residuals because Gaussian assumptions hold there
-  rss = deviance(model, scale=:transformed)
+  rss = deviance(model, scale=:scale)
   return -n / 2 * (log(2 * π) + 1 + log(rss / n))
 end
 
-function nullloglikelihood(model::AllometricModel)
+function nullloglikelihood(model::AllometricModel; scale=:original)
   n = nobs(model)
   # uses transformed y for consistency with loglikelihood
-  tss = nulldeviance(model, scale=:transformed)
+  tss = nulldeviance(model, scale=scale)
   return -n / 2 * (log(2 * π) + 1 + log(tss / n))
 end
 
