@@ -1,6 +1,6 @@
 module AllometricModels
 
-using StatsBase, Distributions, HypothesisTests, StatsModels, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
+using StatsBase, Distributions, HypothesisTests, StatsModels, Printf, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
 
 import StatsAPI: coef, coeftable, coefnames, confint, deviance, nulldeviance, dof, dof_residual, loglikelihood,
   nullloglikelihood, nobs, stderror, vcov, residuals, predict, predict!, fitted, fit, response,
@@ -54,6 +54,7 @@ export regression, AllometricModel,
   vif,
   gvif,
   criteriatable,
-  bestmodel
+  bestmodel,
+  metrics
 
 end
