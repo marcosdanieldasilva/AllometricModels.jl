@@ -147,12 +147,6 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     throw(ArgumentError("no independent variables provided"))
   end
 
-  if !Tables.istable(data)
-    throw(ArgumentError("data must be a valid table"))
-  else
-    cols = columntable(data)
-  end
-
   if nmin < 1
     throw(ArgumentError("nmin must be >= 1"))
   end
@@ -170,6 +164,12 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   yname = Symbol(yname)
   xnames = Symbol.(xnames)
+
+  if !Tables.istable(data)
+    throw(ArgumentError("data must be a valid table"))
+  else
+    cols = columntable(data)[(yname, xnames...)]
+  end
 
   # Term Preparation
   yterm = concrete_term(term(yname), cols, ContinuousTerm)
