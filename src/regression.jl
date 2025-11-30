@@ -141,7 +141,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   return fittedmodels
 end
 
-function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3)
+function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3)
   # Input Validation
   if isempty(xnames)
     throw(ArgumentError("no independent variables provided"))
@@ -174,7 +174,7 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
   yterm = concrete_term(term(yname), cols, ContinuousTerm)
 
   # apply schema to x terms
-  xschema = apply_schema(term.(xnames), schema(cols, hints))
+  xschema = apply_schema(term.(xnames), schema(cols, contrasts))
   xterms = xschema isa AbstractTerm ? AbstractTerm[xschema] : collect(AbstractTerm, xschema)
 
   # separate categorical (q) and continuous (x) terms
@@ -241,14 +241,14 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
   combinationsfit(model, cols, ylist, combinations, qterms)
 end
 
-function fit(::Type{AllometricModel}, formula::FormulaTerm, data; hints=Dict{Symbol,Any}())
+function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict{Symbol,Any}())
   if !Tables.istable(data)
     throw(ArgumentError("data must be a valid table"))
   else
     cols = columntable(data) # need revised here
   end
 
-  formula = apply_schema(formula, schema(cols, hints))
+  formula = apply_schema(formula, schema(cols, contrasts))
 
   # remove missing rows based on formula
   cols, _ = StatsModels.missing_omit(cols, formula)
