@@ -155,7 +155,6 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
     throw(ArgumentError("nmax must be >= nmin"))
   end
 
-  # --- CORREÇÃO: Limite Rígido de Segurança ---
   if nmax > 5
     throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 5). "
                         * "Models with more than 5 terms (e.g., degree > 5) cause severe overfitting, "
@@ -188,6 +187,7 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
 
   ft = isempty(qterms) ? FormulaTerm(yterm, MatrixTerm(β₀ + sum(xterms))) : FormulaTerm(yterm, MatrixTerm(β₀ + sum(xterms) + sum(qterms)))
 
+  # remove missing rows based on formula
   cols, _ = missing_omit(cols, ft)
 
   # Build Transformation Groups (Continuous)
@@ -241,3 +241,85 @@ function regression(data, yname::S, xnames::S...; hints=Dict{Symbol,Any}(), mode
   combinationsfit(model, cols, ylist, combinations, qterms)
 end
 
+function fit(::Type{AllometricModel}, formula::FormulaTerm, data; hints=Dict{Symbol,Any}())
+  if !Tables.istable(data)
+    throw(ArgumentError("data must be a valid table"))
+  else
+    cols = columntable(data) # need revised here
+  end
+
+  formula = apply_schema(formula, schema(cols, hints))
+
+  # remove missing rows based on formula
+  cols, _ = StatsModels.missing_omit(cols, formula)
+
+  yt = formula.lhs
+  rhs = formula.rhs
+
+  y = modelcols(yt, cols) |> collect
+
+  X = modelmatrix(rhs, cols)
+
+  yᵣ = cols[1] # need revised here
+
+  # total sum of squares
+  ȳ = mean(yᵣ)
+  sst = sum(abs2, yᵣ .- ȳ)
+
+  # QR / Cholesky solve for coefficients
+  try
+    chol = cholesky!(Symmetric(X' * X))
+    # β = (X'X)⁻¹ * (X'y)
+    β = X' * y
+    ldiv!(chol, β)
+
+    # Allocate space for predicted values (ŷ) with the same structure as y
+    ŷ = similar(y)
+    # Compute predicted values in-place (ŷ = X * β)
+    mul!(ŷ, X, β)
+
+    # compute residuals (statistical)
+    ε = y - ŷ
+
+    # Determine the number of observations (n) and the number of predictors (p)
+    (n, p) = size(X)
+    # Calculate the degrees of freedom for residuals
+    ν = n - p
+    # sum of squared errors (transformed)
+    sse = ε ⋅ ε
+    # residual variance
+    σ² = sse / ν
+    # compute dispersion matrix
+    Σ = rmul!(inv(chol), σ²)
+    # normality check of residuals
+    normality = isnormality(ε)
+    # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
+    if isa(yt, FunctionTerm)
+      # Apply the function-specific prediction logic
+      predictbiascorrected!(ŷ, cols, yt, σ²)
+      ε = yᵣ - ŷ
+      sse = ε ⋅ ε
+    end
+    # Compute the coefficient of determination (R²), a measure of model fit
+    r² = 1 - sse / sst
+    # Compute the adjusted R², penalized for the number of predictors
+    adjr² = 1 - (1 - r²) * (n - 1) / ν
+    # Explained Variance (EV)
+    ev = 1.0 - (var(ε) / var(yᵣ))
+    # Calculate the Mean Absolute Error (MAE) as the average absolute residual value
+    mae = mean(abs, ε)
+    # Calculate Mean Absolute Percentage Error (MAPE)
+    mape = mean(abs.(ε) ./ abs.(yᵣ)) * 100
+    # Calculate the variance of the residuals (Mean Squared Error - Unbiased)
+    mse = sse / ν
+    # Root Mean Squared Error
+    rmse = √mse
+    # Coefficient of Variation of RMSE (%)
+    cv = (rmse / ȳ) * 100
+
+    return AllometricModel(
+      formula, cols, β, Σ, σ², n, ν, p, sse, sst, r², adjr², ev, mae, mape, mse, rmse, cv, normality)
+  catch err
+    throw(ErrorException("model fit failed: $(err)"))
+  end
+end
