@@ -6,7 +6,7 @@ import AllometricModels: combinationsfit, TermTuple, β₀
 
 function AllometricModels.combinationsfit(::Type{LinearModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
   # pre-calculate intercept column
-  X0 = modelcols(β0, cols)
+  X0 = modelcols(β₀, cols)
 
   # pre-calculate categorical column(s)
   if !isempty(qterms)
@@ -25,10 +25,10 @@ function AllometricModels.combinationsfit(::Type{LinearModel}, cols::NamedTuple,
 
     if isempty(qterms)
       X = hcat(X0, map(last, c)...)
-      rhs = MatrixTerm(mapfoldl(first, +, c; init=β0))
+      rhs = MatrixTerm(mapfoldl(first, +, c; init=β₀))
     else
       X = hcat(X0, map(last, c)..., Qmatrix)
-      rhs = MatrixTerm(mapfoldl(first, +, c; init=β0) + Qsum)
+      rhs = MatrixTerm(mapfoldl(first, +, c; init=β₀) + Qsum)
     end
 
     for iy in 1:ny

@@ -1,7 +1,6 @@
 expandxterms(xterm::AbstractTerm) = AbstractTerm[
   xterm,
   # polynomials (shape)
-  FunctionTerm(x -> x^1.5, [xterm], :($(xterm)^1.5)),
   FunctionTerm(x -> x^2, [xterm], :($(xterm)^2)),
   FunctionTerm(x -> x^3, [xterm], :($(xterm)^3)),
   # fractional/root (stabilization)
@@ -12,7 +11,6 @@ expandxterms(xterm::AbstractTerm) = AbstractTerm[
   FunctionTerm(x -> log(x)^2, [xterm], :(log($(xterm))^2)),
   FunctionTerm(x -> log(x)^3, [xterm], :(log($(xterm))^3)),
   # inverse (asymptotic)
-  FunctionTerm(x -> x^-0.5, [xterm], :($(xterm)^-0.5)),
   FunctionTerm(inv, [xterm], :($(xterm)^-1)),
   FunctionTerm(x -> x^-2, [xterm], :($(xterm)^-2)),
   FunctionTerm(x -> x^-3, [xterm], :($(xterm)^-3))
@@ -164,31 +162,24 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
   yname = Symbol(yname)
   xnames = Symbol.(xnames)
 
-  if !Tables.istable(data)
-    throw(ArgumentError("data must be a valid table"))
-  else
-    cols = columntable(data)[(yname, xnames...)]
+  # Construct Model Frame
+  mf = ModelFrame(
+    term(yname) ~ sum(term.(xnames)),
+    data; model=model, contrasts=contrasts
+  )
+  # Extract components
+  cols = mf.data
+  yterm = mf.f.lhs
+
+  if yterm isa CategoricalTerm
+    throw(ArgumentError("dependent variable must be continuous"))
   end
 
-  # Term Preparation
-  yterm = concrete_term(term(yname), cols, ContinuousTerm)
+  xterms = filter(t -> t isa ContinuousTerm, mf.f.rhs.terms) |> collect
 
-  # apply schema to x terms
-  xschema = apply_schema(term.(xnames), schema(cols, contrasts))
-  xterms = xschema isa AbstractTerm ? AbstractTerm[xschema] : collect(AbstractTerm, xschema)
+  isempty(xterms) && throw(ArgumentError("no continuous independent variables provided"))
 
-  # separate categorical (q) and continuous (x) terms
-  qterms = filter(t -> t isa CategoricalTerm, xterms)
-  filter!(t -> !(t isa CategoricalTerm), xterms)
-
-  if isempty(xterms)
-    throw(ArgumentError("no continuous variables found"))
-  end
-
-  ft = isempty(qterms) ? FormulaTerm(yterm, MatrixTerm(β₀ + sum(xterms))) : FormulaTerm(yterm, MatrixTerm(β₀ + sum(xterms) + sum(qterms)))
-
-  # remove missing rows based on formula
-  cols, _ = missing_omit(cols, ft)
+  qterms = filter(t -> t isa CategoricalTerm, mf.f.rhs.terms) |> collect
 
   # Build Transformation Groups (Continuous)
   termgroups = Vector{Vector{Tuple{AbstractTerm,Vector{Float64}}}}()
@@ -242,19 +233,13 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
 end
 
 function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict{Symbol,Any}())
-  if !Tables.istable(data)
-    throw(ArgumentError("data must be a valid table"))
-  else
-    cols = columntable(data) # need revised here
-  end
-
-  formula = apply_schema(formula, schema(cols, contrasts))
-
-  # remove missing rows based on formula
-  cols, _ = StatsModels.missing_omit(cols, formula)
-
+  # Construct Model Frame
+  mf = ModelFrame(formula, data; model=AllometricModel, contrasts=contrasts)
+  # Extract components
+  formula = mf.f
   yt = formula.lhs
   rhs = formula.rhs
+  cols = mf.data
 
   y = modelcols(yt, cols) |> collect
 
