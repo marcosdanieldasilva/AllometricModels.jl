@@ -26,7 +26,7 @@ end
 
 isnormality(model::AllometricModel) = model.normality
 
-# --- Basic Model Properties ---
+# Basic Model Properties
 
 nobs(model::AllometricModel) = model.n
 
@@ -36,7 +36,7 @@ dof(model::AllometricModel) = length(model.β) + 1
 
 formula(model::AllometricModel) = model.formula
 
-# --- Coefficients & Inference ---
+# Coefficients & Inference
 
 coef(model::AllometricModel) = model.β
 
@@ -86,7 +86,7 @@ function coeftable(model::AllometricModel; level::Real=0.95)
   )
 end
 
-# --- Data, Predictions & Response ---
+# Data, Predictions & Response
 
 modelmatrix(model::AllometricModel) = modelcols(model.formula.rhs, model.data)
 
@@ -247,7 +247,7 @@ function predict!(dest::AbstractVector{<:Real}, model::AllometricModel)
   return dest
 end
 
-# --- Residuals & Deviance ---
+# Residuals & Deviance
 
 residuals(model::AllometricModel) = response(model) - predict(model)
 
@@ -255,7 +255,7 @@ deviance(model::AllometricModel) = model.sse
 
 nulldeviance(model::AllometricModel) = model.sst
 
-# ---  Goodness of Fit (Likelihood & R²) ---
+#  Goodness of Fit (Likelihood & R²)
 
 function loglikelihood(model::AllometricModel)
   n = nobs(model)
