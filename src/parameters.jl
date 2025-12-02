@@ -97,7 +97,7 @@ response(model::AllometricModel) = model.cols[1]
 
 In-place version. Overwrites the input vector `ŷ` with the bias-corrected predictions on the original scale.
 """
-function predictbiascorrected!(ŷ::Vector{<:Float64}, xcol::Union{AbstractVector{<:Float64},Nothing}, ft::FunctionTerm, σ²::Real)
+function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:Real},Nothing}, ft::FunctionTerm, σ²::Real)
   fname = nameof(ft.f)
   n = length(ŷ)
 
