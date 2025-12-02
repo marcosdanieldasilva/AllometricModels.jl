@@ -10,6 +10,7 @@ expandxterms(xterm::AbstractTerm) = AbstractTerm[
   FunctionTerm(log, [xterm], :(log($(xterm)))),
   FunctionTerm(x -> log(x)^2, [xterm], :(log($(xterm))^2)),
   FunctionTerm(x -> log(x)^3, [xterm], :(log($(xterm))^3)),
+  FunctionTerm(log1p, [xterm], :(log1p($(xterm)))),
   # inverse (asymptotic)
   FunctionTerm(inv, [xterm], :($(xterm)^-1)),
   FunctionTerm(x -> inv(x^2), [xterm], :($(xterm)^-2)),
@@ -42,12 +43,15 @@ prodan(y::Real, x::Real) = x^2 / y
 
 function transformyterms(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   ylist = AbstractTerm[
-    yterm
-    FunctionTerm(log, [yterm], :(log($yterm)))
-    FunctionTerm(inv, [yterm], :($yterm^-1))
+    yterm,
+    FunctionTerm(log, [yterm], :(log($yterm))),
+    FunctionTerm(log1p, [yterm], :(log1p($yterm))),
+    FunctionTerm(inv, [yterm], :($yterm^-1)),
+    FunctionTerm(sqrt, [yterm], :(√$yterm)),
+    FunctionTerm(cbrt, [yterm], :(∛$yterm)),
     FunctionTerm(petterson, [yterm], :(√($yterm)^-1))
   ]
-  # add combined transformations with each x
+  # # add combined transformations with each x
   for xt in xterms
     push!(ylist,
       FunctionTerm(naslund, [yterm, xt], :($xt / √($yterm)))
@@ -188,9 +192,9 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
     throw(ArgumentError("nmax must be >= nmin"))
   end
 
-  if nmax > 6
-    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 6). "
-                        * "Models with more than 6 terms (e.g., degree > 6) cause severe overfitting, "
+  if nmax > 5
+    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 5). "
+                        * "Models with more than 5 terms (e.g., degree > 5) cause severe overfitting, "
                         * "numerical instability (singular matrices), and lack biological meaning."))
   end
 
@@ -277,12 +281,12 @@ function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict
   # Validate supported transformations on dependent variable
   if isa(yt, FunctionTerm)
     fname = nameof(yt.f)
-    if fname ∉ (:log, :inv, :petterson, :naslund, :prodan)
+    if fname ∉ (:log, :log1p, :inv, :sqrt, :cbrt, :petterson, :naslund, :prodan)
       throw(ArgumentError("""
         Transformation ':$fname' on the dependent variable is not supported by AllometricModel.
         We only support transformations with defined bias correction methods.
         
-        Allowed: (:log, :inv, :petterson, :naslund, :prodan)
+        Allowed: (:log, :log1p, :inv, :sqrt, :cbrt, :petterson, :naslund, :prodan)
       """))
     end
   end

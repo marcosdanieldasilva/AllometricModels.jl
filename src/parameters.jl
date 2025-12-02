@@ -102,7 +102,7 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:
   n = length(ŷ)
 
   # If no transformation, do nothing (ŷ remains unchanged)
-  if fname ∉ (:log, :inv, :petterson, :naslund, :prodan)
+  if fname ∉ (:log, :log1p, :inv, :sqrt, :cbrt, :petterson, :naslund, :prodan)
     return
   end
 
@@ -113,12 +113,27 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:
       # log-normal (exact)
       ŷ[i] = exp(z + 0.5σ²)
 
+    elseif fname == :log1p
+      # We use expm1 for numerical precision
+      ŷ[i] = expm1(z + 0.5σ²)
+
     elseif fname == :inv
       # inverse (1/y)
       # g(z) = 1/z,  ∂²g = 2/z^3
       g = 1 / z
       ∂²g = 2 / (z^3)
       ŷ[i] = g + 0.5σ² * ∂²g
+
+    elseif fname == :sqrt
+      # Y = z^2 + correction
+      # g'' = 2
+      ŷ[i] = (z^2) + σ²
+
+    elseif fname == :cbrt
+      # Y = z^3 + correction
+      # g'' = 6z
+      # corr = 0.5 * sig2 * 6z = 3 * z * sig2
+      ŷ[i] = (z^3) + (3 * z * σ²)
 
     elseif fname == :petterson
       # inverse sqrt (1/√y)

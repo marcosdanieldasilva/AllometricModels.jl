@@ -85,13 +85,11 @@ function criteriatable(models::Vector{AllometricModel}, criteria::Symbol...; bes
   result = map(topindices) do i
     m = current_models[i] # Use the filtered list!
 
-    f_str = string(formula(m))
-
     # Extract metrics
     metricpairs = (k => getfield(m, k) for k in selected)
 
     # Construct row
-    (; rank=scores[i], formula=f_str, metricpairs...)
+    (; model=m, rank=scores[i], metricpairs...)
   end
 
   return result
