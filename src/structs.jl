@@ -47,7 +47,7 @@ These metrics are based on the back-transformed predictions (real units, e.g., m
 """
 struct AllometricModel{F<:FormulaTerm,N<:NamedTuple,T<:Float64,I<:Int64,B<:Bool} <: RegressionModel
   formula::F        # Formula
-  cols::N           # Data (NamedTuple)
+  data::N           # Data (NamedTuple)
   β::Vector{T}      # Coefficients
   Σ::Matrix{T}      # Covariance Matrix
   σ²::T             # Residual Variance (Transformed)

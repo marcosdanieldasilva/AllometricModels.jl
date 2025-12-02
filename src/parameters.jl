@@ -88,9 +88,9 @@ end
 
 # --- Data, Predictions & Response ---
 
-modelmatrix(model::AllometricModel) = modelcols(model.formula.rhs, model.cols)
+modelmatrix(model::AllometricModel) = modelcols(model.formula.rhs, model.data)
 
-response(model::AllometricModel) = model.cols[1]
+response(model::AllometricModel) = model.data[1]
 
 """
     predictbiascorrected!(ŷ, cols, ft, σ²)
@@ -208,7 +208,7 @@ Where:
   ypred = predict(model)
   ```
 """
-predict(model::AllometricModel) = predict(model, model.cols)
+predict(model::AllometricModel) = predict(model, model.data)
 
 fitted(model::AllometricModel) = predict(model)
 
