@@ -4,7 +4,7 @@ using AllometricModels, GLM, StatsModels, Base.Threads
 
 import AllometricModels: combinationsfit, TermTuple, β₀
 
-function AllometricModels.combinationsfit(::Type{LinearModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm}, positive::Bool)
+function AllometricModels.combinationsfit(::Type{LinearModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm}, nonnegative::Bool)
   # pre-calculate intercept column
   X0 = modelcols(β₀, cols)
 
