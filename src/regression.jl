@@ -12,35 +12,55 @@ expandxterms(xterm::AbstractTerm) = AbstractTerm[
   FunctionTerm(x -> log(x)^3, [xterm], :(log($(xterm))^3)),
   # inverse (asymptotic)
   FunctionTerm(inv, [xterm], :($(xterm)^-1)),
-  FunctionTerm(x -> x^-2, [xterm], :($(xterm)^-2)),
-  FunctionTerm(x -> x^-3, [xterm], :($(xterm)^-3))
+  FunctionTerm(x -> inv(x^2), [xterm], :($(xterm)^-2)),
+  FunctionTerm(x -> inv(x^3), [xterm], :($(xterm)^-3))
 ]
 
-inversesqrt(y::Real) = 1 / √y
-xoversqrty(y::Real, x::Real) = x / √y
-xsquaredovery(y::Real, x::Real) = x^2 / y
+"""
+    petterson(y) = 1 / √y
+
+Transformation used in the linearized Petterson hypsometric model.
+Form: 1/√H = β0 + β1 * (1/D)
+"""
+petterson(y::Real) = inv(√y)
+
+"""
+    naslund(y, x) = x / √y
+
+Transformation used in the linearized Naslund hypsometric model.
+Form: D/√H = β0 + β1 * D
+"""
+naslund(y::Real, x::Real) = x / √y
+
+"""
+    prodan(y, x) = x^2 / y
+
+Transformation used in the linearized Prodan hypsometric model.
+Form: D²/H = β0 + β1 * D + β2 * D²
+"""
+prodan(y::Real, x::Real) = x^2 / y
 
 function transformyterms(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   ylist = AbstractTerm[
     yterm
     FunctionTerm(log, [yterm], :(log($yterm)))
     FunctionTerm(inv, [yterm], :($yterm^-1))
-    FunctionTerm(inversesqrt, [yterm], :(√($yterm)^-1))
+    FunctionTerm(petterson, [yterm], :(√($yterm)^-1))
   ]
   # add combined transformations with each x
   for xt in xterms
     push!(ylist,
-      FunctionTerm(xoversqrty, [yterm, xt], :($xt / √($yterm)))
+      FunctionTerm(naslund, [yterm, xt], :($xt / √($yterm)))
     )
     push!(ylist,
-      FunctionTerm(xsquaredovery, [yterm, xt], :(($xt)^2 / $yterm))
+      FunctionTerm(prodan, [yterm, xt], :(($xt)^2 / $yterm))
     )
   end
 
   return ylist
 end
 
-function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm})
+function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm}, positive::Bool)
   # pre-calculate intercept column
   X₀ = modelcols(β₀, cols)
   # the real dependent variable
@@ -112,6 +132,13 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
           @. ε = yᵣ - ŷ
           sse = ε ⋅ ε
         end
+
+        # check for positive fitted values if required
+        if positive && any(v -> v < 0, ŷ)
+          fittedmodels[iy, ix] = missing
+          continue
+        end
+
         # Compute the coefficient of determination (R²), a measure of model fit
         r² = 1 - sse / sst
         # Compute the adjusted R², penalized for the number of predictors
@@ -147,7 +174,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   return fittedmodels
 end
 
-function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3)
+function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3, positive::Bool=true)
   # Input Validation
   if isempty(xnames)
     throw(ArgumentError("no independent variables provided"))
@@ -161,9 +188,9 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
     throw(ArgumentError("nmax must be >= nmin"))
   end
 
-  if nmax > 5
-    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 5). "
-                        * "Models with more than 5 terms (e.g., degree > 5) cause severe overfitting, "
+  if nmax > 6
+    throw(ArgumentError("nmax ($nmax) exceeds the practical limit for allometric models (max 6). "
+                        * "Models with more than 6 terms (e.g., degree > 6) cause severe overfitting, "
                         * "numerical instability (singular matrices), and lack biological meaning."))
   end
 
@@ -237,7 +264,7 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
     end
   end
 
-  combinationsfit(model, cols, ylist, combinations, qterms)
+  combinationsfit(model, cols, ylist, combinations, qterms, positive)
 end
 
 function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict{Symbol,Any}())
@@ -250,12 +277,12 @@ function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict
   # Validate supported transformations on dependent variable
   if isa(yt, FunctionTerm)
     fname = nameof(yt.f)
-    if fname ∉ (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
+    if fname ∉ (:log, :inv, :petterson, :naslund, :prodan)
       throw(ArgumentError("""
         Transformation ':$fname' on the dependent variable is not supported by AllometricModel.
         We only support transformations with defined bias correction methods.
         
-        Allowed: (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
+        Allowed: (:log, :inv, :petterson, :naslund, :prodan)
       """))
     end
   end

@@ -102,7 +102,7 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:
   n = length(ŷ)
 
   # If no transformation, do nothing (ŷ remains unchanged)
-  if fname ∉ (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
+  if fname ∉ (:log, :inv, :petterson, :naslund, :prodan)
     return
   end
 
@@ -120,7 +120,7 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:
       ∂²g = 2 / (z^3)
       ŷ[i] = g + 0.5σ² * ∂²g
 
-    elseif fname == :inversesqrt
+    elseif fname == :petterson
       # inverse sqrt (1/√y)
       # g(z) = 1/z^2,  ∂²g = 6/z^4
       z² = z^2
@@ -128,7 +128,7 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:
       ∂²g = 6 / (z²^2)
       ŷ[i] = g + 0.5σ² * ∂²g
 
-    elseif fname == :xoversqrty
+    elseif fname == :naslund
       # x/√y
       # g(z) = x^2/z^2,  ∂²g = 6x^2/z^4
       x = xcol[i]
@@ -139,7 +139,7 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, xcol::Union{AbstractVector{<:
       ∂²g = (6 * x²) / (z²^2)
       ŷ[i] = g + 0.5σ² * ∂²g
 
-    elseif fname == :xsquaredovery
+    elseif fname == :prodan
       # x^2/y
       # g(z) = x^2/z,  ∂²g = 2x^2/z^3
       x = xcol[i]
