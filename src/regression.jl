@@ -64,7 +64,7 @@ function transformyterms(yterm::AbstractTerm, xterms::Vector{<:AbstractTerm})
   return ylist
 end
 
-function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm}, positive::Bool)
+function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vector{Tuple{AbstractTerm,Vector{Float64}}}, combinations::Vector{TermTuple}, qterms::Vector{<:AbstractTerm}, nonnegative::Bool)
   # pre-calculate intercept column
   X₀ = modelcols(β₀, cols)
   # the real dependent variable
@@ -137,8 +137,8 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
           sse = ε ⋅ ε
         end
 
-        # check for positive fitted values if required
-        if positive && any(v -> v < 0, ŷ)
+        # check for nonnegative fitted values if required
+        if nonnegative && any(v -> v < 0, ŷ)
           fittedmodels[iy, ix] = missing
           continue
         end
@@ -178,7 +178,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   return fittedmodels
 end
 
-function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3, positive::Bool=true)
+function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3, nonnegative::Bool=true)
   # Input Validation
   if isempty(xnames)
     throw(ArgumentError("no independent variables provided"))
@@ -268,10 +268,10 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
     end
   end
 
-  combinationsfit(model, cols, ylist, combinations, qterms, positive)
+  combinationsfit(model, cols, ylist, combinations, qterms, nonnegative)
 end
 
-function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict{Symbol,Any}())
+function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict{Symbol,Any}(), nonnegative::Bool=true)
   # Construct Model Frame (Handle missing data, categorical contrasts, etc.)
   mf = ModelFrame(formula, data; model=AllometricModel, contrasts=contrasts)
   # Extract Components from the processed ModelFrame
@@ -340,6 +340,12 @@ function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict
       @. ε = yᵣ - ŷ
       sse = ε ⋅ ε
     end
+
+    # check for nonnegative fitted values if required
+    if nonnegative && any(v -> v < 0, ŷ)
+      return throw(ErrorException("fitted values contain negative predictions"))
+    end
+
     # Compute the coefficient of determination (R²), a measure of model fit
     r² = 1 - sse / sst
     # Compute the adjusted R², penalized for the number of predictors
