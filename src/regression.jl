@@ -69,39 +69,47 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
       rhs = MatrixTerm(mapfoldl(first, +, c; init=β₀) + Qsum)
     end
 
+    # Determine the number of observations (n) and the number of predictors (p)
+    (n, p) = size(X)
+    # Calculate the degrees of freedom for residuals
+    ν = n - p
+    # Allocate space for regression coefficients β
+    β = Vector{Float64}(undef, p)
+    # Allocate space for predicted values (ŷ) 
+    ŷ = Vector{Float64}(undef, n)
+    # Allocate space for residuals (ε)
+    ε = Vector{Float64}(undef, n)
+
     try
       chol = cholesky!(Symmetric(X'X))
+      invchol = inv(chol)
 
       for iy in 1:ny
         (yt, y) = ylist[iy]
         # β = (X'X)⁻¹ * (X'y)
-        β = X'y
+        mul!(β, X', y)
         # Solve for regression coefficients β in-place using the Cholesky factor
         ldiv!(chol, β)
-        # Allocate space for predicted values (ŷ) with the same structure as y
-        ŷ = similar(y)
         # Compute predicted values in-place (ŷ = X * β)
         mul!(ŷ, X, β)
         # compute residuals
-        ε = y - ŷ
-        # Determine the number of observations (n) and the number of predictors (p)
-        (n, p) = size(X)
-        # Calculate the degrees of freedom for residuals
-        ν = n - p
+        @. ε = y - ŷ
         # sum of squared errors
         sse = ε ⋅ ε
         # residual variance
         σ² = sse / ν
         # compute dispersion matrix
-        Σ = rmul!(inv(chol), σ²)
+        Σ = copy(invchol)
+        rmul!(Σ, σ²)
         # normality check of residuals
         normality = isnormality(ε)
         # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
         if isa(yt, FunctionTerm)
+          # xtract interaction vector 'x' if the transformation requires it (e.g., x/sqrt(y))
+          x = length(yt.args) > 1 ? cols[yt.args[2].sym] : nothing
           # Apply the function-specific prediction logic
-          # ŷ = predictBiasCorrected(cols, yt, ŷ, σ²)
-          predictbiascorrected!(ŷ, cols, yt, σ²)
-          ε = yᵣ - ŷ
+          predictbiascorrected!(ŷ, x, yt, σ²)
+          @. ε = yᵣ - ŷ
           sse = ε ⋅ ε
         end
         # Compute the coefficient of determination (R²), a measure of model fit
@@ -122,7 +130,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
         cv = (rmse / ȳ) * 100
         # store fitted model
         fittedmodels[iy, ix] = AllometricModel(
-          FormulaTerm(yt, rhs), cols, β, Σ, σ², n, ν, p, sse, sst, r², adjr², ev, mae, mape, mse, rmse, cv, normality)
+          FormulaTerm(yt, rhs), cols, copy(β), Σ, σ², n, ν, p, sse, sst, r², adjr², ev, mae, mape, mse, rmse, cv, normality)
       end
     catch
       for iy in 1:ny
@@ -233,56 +241,72 @@ function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), 
 end
 
 function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict{Symbol,Any}())
-  # Construct Model Frame
+  # Construct Model Frame (Handle missing data, categorical contrasts, etc.)
   mf = ModelFrame(formula, data; model=AllometricModel, contrasts=contrasts)
-  # Extract components
+  # Extract Components from the processed ModelFrame
   formula = mf.f
+  # Dependent Variable Term
   yt = formula.lhs
-  rhs = formula.rhs
+  # Validate supported transformations on dependent variable
+  if isa(yt, FunctionTerm)
+    fname = nameof(yt.f)
+    if fname ∉ (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
+      throw(ArgumentError("""
+        Transformation ':$fname' on the dependent variable is not supported by AllometricModel.
+        We only support transformations with defined bias correction methods.
+        
+        Allowed: (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
+      """))
+    end
+  end
+  # Data Columns
   cols = mf.data
-
-  y = modelcols(yt, cols) |> collect
-
-  X = modelmatrix(rhs, cols)
-
-  yᵣ = cols[1] # need revised here
-
+  # the real dependent variable
+  yᵣ = cols[1]
   # total sum of squares
   ȳ = mean(yᵣ)
   sst = sum(abs2, yᵣ .- ȳ)
+  # Build Model Matrix (X) and Transformed Y Columns (y)
+  X = modelmatrix(mf)
+  y = modelcols(yt, cols)
+  # Determine the number of observations (n) and the number of predictors (p)
+  (n, p) = size(X)
+  # Calculate the degrees of freedom for residuals
+  ν = n - p
+  # Allocate space for regression coefficients β
+  β = Vector{Float64}(undef, p)
+  # Allocate space for predicted values (ŷ) 
+  ŷ = Vector{Float64}(undef, n)
+  # Allocate space for residuals (ε)
+  ε = Vector{Float64}(undef, n)
 
-  # QR / Cholesky solve for coefficients
   try
-    chol = cholesky!(Symmetric(X' * X))
+    chol = cholesky!(Symmetric(X'X))
+    invchol = inv(chol)
     # β = (X'X)⁻¹ * (X'y)
-    β = X' * y
+    mul!(β, X', y)
+    # Solve for regression coefficients β in-place using the Cholesky factor
     ldiv!(chol, β)
-
-    # Allocate space for predicted values (ŷ) with the same structure as y
-    ŷ = similar(y)
-    # Compute predicted values in-place (ŷ = X * β)
-    mul!(ŷ, X, β)
-
-    # compute residuals (statistical)
-    ε = y - ŷ
-
-    # Determine the number of observations (n) and the number of predictors (p)
-    (n, p) = size(X)
-    # Calculate the degrees of freedom for residuals
-    ν = n - p
-    # sum of squared errors (transformed)
+    # Compute predicted values in-place (ŷ = X * β)
+    mul!(ŷ, X, β)
+    # compute residuals
+    @. ε = y - ŷ
+    # sum of squared errors
     sse = ε ⋅ ε
     # residual variance
     σ² = sse / ν
     # compute dispersion matrix
-    Σ = rmul!(inv(chol), σ²)
+    Σ = copy(invchol)
+    rmul!(Σ, σ²)
     # normality check of residuals
     normality = isnormality(ε)
     # Correct the predicted values and residuals for models with a function on the left-hand side of the formula
     if isa(yt, FunctionTerm)
+      # xtract interaction vector 'x' if the transformation requires it (e.g., x/sqrt(y))
+      x = length(yt.args) > 1 ? cols[yt.args[2].sym] : nothing
       # Apply the function-specific prediction logic
-      predictbiascorrected!(ŷ, cols, yt, σ²)
-      ε = yᵣ - ŷ
+      predictbiascorrected!(ŷ, x, yt, σ²)
+      @. ε = yᵣ - ŷ
       sse = ε ⋅ ε
     end
     # Compute the coefficient of determination (R²), a measure of model fit
@@ -297,11 +321,11 @@ function fit(::Type{AllometricModel}, formula::FormulaTerm, data; contrasts=Dict
     mape = mean(abs.(ε) ./ abs.(yᵣ)) * 100
     # Calculate the variance of the residuals (Mean Squared Error - Unbiased)
     mse = sse / ν
-    # Root Mean Squared Error
-    rmse = √mse
-    # Coefficient of Variation of RMSE (%)
+    # Standard Error of the Estimate (RMSE - Absolute)
+    rmse = √(mse)
+    # Standard Error of the Estimate % (Syx% - Relative)
     cv = (rmse / ȳ) * 100
-
+    # store fitted model
     return AllometricModel(
       formula, cols, β, Σ, σ², n, ν, p, sse, sst, r², adjr², ev, mae, mape, mse, rmse, cv, normality)
   catch err

@@ -19,7 +19,7 @@ include("selectioncriteria.jl")
 include("io.jl")
 
 # Export Main Interface
-export regression, AllometricModel,
+export regression, fit, AllometricModel,
   # Export StatsModels Types (Necessary for 'hints' argument)
   ContinuousTerm, CategoricalTerm,
   # Export StatsAPI Methods (So user can call them directly)

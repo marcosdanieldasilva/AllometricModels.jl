@@ -97,7 +97,7 @@ response(model::AllometricModel) = model.cols[1]
 
 In-place version. Overwrites the input vector `ŷ` with the bias-corrected predictions on the original scale.
 """
-function predictbiascorrected!(ŷ::Vector{<:Real}, cols::NamedTuple, ft::FunctionTerm, σ²::Real)
+function predictbiascorrected!(ŷ::Vector{<:Float64}, xcol::Union{AbstractVector{<:Float64},Nothing}, ft::FunctionTerm, σ²::Real)
   fname = nameof(ft.f)
   n = length(ŷ)
 
@@ -105,10 +105,6 @@ function predictbiascorrected!(ŷ::Vector{<:Real}, cols::NamedTuple, ft::Functio
   if fname ∉ (:log, :inv, :inversesqrt, :xoversqrty, :xsquaredovery)
     return
   end
-
-  # Pre-fetch interaction column if required
-  # Check args length to avoid bounds error
-  xcol = length(ft.args) > 1 ? cols[ft.args[2].sym] : nothing
 
   @inbounds @simd for i in 1:n
     z = ŷ[i]
@@ -208,16 +204,16 @@ function predict(model::AllometricModel, data)
     cols = columntable(data)
   end
   # Remove missing values and prepare the input data for the model
-  x, nonmissings = missing_omit(cols, formula(model).rhs)
+  cols, nonmissings = missing_omit(cols, formula(model).rhs)
   # Generate the model matrix (design matrix) from the input data
-  X = modelmatrix(formula(model).rhs, x)
+  X = modelmatrix(formula(model).rhs, cols)
   # Compute the predicted values: ŷ = X * β
   ŷ = X * coef(model)
   # Handle special cases where the left-hand side (lhs) is a function term
   ft = formula(model).lhs
   if isa(ft, FunctionTerm)
+    x = length(ft.args) > 1 ? cols[ft.args[2].sym] : nothing
     # Apply the function-specific prediction logic
-    # Overwrite ŷ with the corrected values using the filtered data 'x'
     predictbiascorrected!(ŷ, x, ft, model.σ²)
   end
   # Return predictions in the original data order, reinserting missing values
