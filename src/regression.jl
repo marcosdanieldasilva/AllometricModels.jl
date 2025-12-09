@@ -178,7 +178,7 @@ function combinationsfit(::Type{AllometricModel}, cols::NamedTuple, ylist::Vecto
   return fittedmodels
 end
 
-function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=3, nonnegative::Bool=true)
+function regression(data, yname::S, xnames::S...; contrasts=Dict{Symbol,Any}(), model=AllometricModel, nmin::Int=1, nmax::Int=2, nonnegative::Bool=true)
   # Input Validation
   if isempty(xnames)
     throw(ArgumentError("no independent variables provided"))

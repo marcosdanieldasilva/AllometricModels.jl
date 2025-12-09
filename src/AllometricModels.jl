@@ -1,12 +1,12 @@
 module AllometricModels
 
-using StatsBase, Distributions, HypothesisTests, StatsModels, Printf, Revise, Tables, LinearAlgebra, Combinatorics, Base.Threads
+using StatsBase, Distributions, HypothesisTests, StatsModels, Printf, Tables, LinearAlgebra, Combinatorics, Base.Threads
 
 import StatsAPI: coef, coeftable, coefnames, confint, deviance, nulldeviance, dof, dof_residual, loglikelihood,
   nullloglikelihood, nobs, stderror, vcov, residuals, predict, predict!, fitted, fit, response,
   modelmatrix, r2, r², adjr2, adjr², pvalue
 
-import StatsModels: missing_omit, formula, modelmatrix
+import StatsModels: missing_omit, formula, modelmatrix, @formula
 
 function combinationsfit(model, args...)
   error("Backend for $model not loaded or implemented.")
@@ -23,38 +23,42 @@ export regression, fit, AllometricModel,
   # Export StatsModels Types (Necessary for 'hints' argument)
   ContinuousTerm, CategoricalTerm,
   # Export StatsAPI Methods (So user can call them directly)
-  formula,
-  coef,
-  coefnames,
-  termnames,
-  coeftable,
-  confint,
-  vcov,
-  stderror,
-  loglikelihood,
-  nullloglikelihood,
-  deviance,
-  nulldeviance,
-  nobs,
-  dof,
-  dof_residual,
-  r2,
-  r²,
+  @formula,
   adjr2,
   adjr²,
-  dispersion,
+  bestmodel,
+  coef,
+  coefnames,
+  coeftable,
+  confint,
   cooksdistance,
-  predict,
+  criteriatable,
+  deviance,
+  dispersion,
+  dof_residual,
+  dof,
   fitted,
+  formula,
+  gvif,
+  isnormality,
+  loglikelihood,
+  metrics,
+  modelmatrix,
+  naslund,
+  nobs,
+  nulldeviance,
+  nullloglikelihood,
+  petterson,
+  predict,
+  prodan,
+  pvalue,
+  r2,
+  r²,
   residuals,
   response,
-  pvalue,
-  modelmatrix,
-  isnormality,
-  vif,
-  gvif,
-  criteriatable,
-  bestmodel,
-  metrics
+  stderror,
+  termnames,
+  vcov,
+  vif
 
 end
