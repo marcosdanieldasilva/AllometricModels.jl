@@ -1,6 +1,6 @@
 using StatsModels
 using CairoMakie
-
+using AllometricModels
 dry = (; d=[1.1, 1.1, 1.2, 1.4, 1.7, 3.5, 3.7, 3.9, 5.8, 6.9],
   g=[66, 131, 274, 28, 91, 762, 1085, 696, 1582, 3340])
 
